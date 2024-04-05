@@ -1,0 +1,43 @@
+{
+  "add_bos_token": true,
+  "add_eos_token": false,
+  "added_tokens_decoder": {
+    "0": {
+      "content": "<unk>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "1": {
+      "content": "<s>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "2": {
+      "content": "</s>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    }
+  },
+  "bos_token": "<s>",
+  "chat_template": "{% if not add_generation_prompt is defined %}{% set add_generation_prompt = false %}{% endif %}{% if messages[0]['role'] == 'system' %}{% set loop_messages = messages[1:] %}{% set system_message = messages[0]['content'].strip() %}{% else %}{% set loop_messages = messages %}{% set system_message = '你是人工智慧助理，以下是用戶和人工智能助理之間的對話。你要對用戶的問題提供有用、安全、詳細和禮貌的回答。' %}{% endif %}{{system_message + eos_token}}{% for message in loop_messages %}{% if message['role'] == 'user' %}USER: {{ message['content'].strip() + eos_token }}{% elif message['role'] == 'system' %}{{message['content'].strip() + eos_token}}{% elif message['role'] == 'assistant' %}ASSISTANT: {{ message['content'].strip() + eos_token }}{% endif %}{% endfor %}{% if add_generation_prompt %}{{'ASSISTANT:'}}{% endif %}",
+  "clean_up_tokenization_spaces": false,
+  "eos_token": "</s>",
+  "legacy": false,
+  "model_max_length": 4096,
+  "pad_token": "<unk>",
+  "padding_side": "right",
+  "sp_model_kwargs": {},
+  "spaces_between_special_tokens": false,
+  "tokenizer_class": "LlamaTokenizer",
+  "unk_token": "<unk>",
+  "use_default_system_prompt": true
+}
