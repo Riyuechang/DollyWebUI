@@ -1,0 +1,2 @@
+Please download it yourself
+github:https://github.com/fishaudio/Bert-VITS2
