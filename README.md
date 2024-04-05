@@ -1,5 +1,6 @@
 # DollyWebUI
-The webui used by AI VTuber Dolly
+The webui used by AI VTuber Dolly  
+YouTube:www.youtube.com/@Dolly_is_AIVTuber  
 
 ## Technologies and resources used:
 Taiwan-LLM  
