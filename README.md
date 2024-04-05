@@ -1,5 +1,3 @@
-<div align="center">
-
 # DollyWebUI
 The webui used by AI VTuber Dolly
 
