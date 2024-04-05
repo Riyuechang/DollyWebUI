@@ -2,7 +2,7 @@
 The webui used by AI VTuber Dolly  
 YouTube:www.youtube.com/@Dolly_is_AIVTuber  
 
-### Technologies and resources used
+## Technologies and resources used
 Taiwan-LLM  
 Bert-VITS2  
 RVC  
