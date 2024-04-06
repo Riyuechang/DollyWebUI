@@ -8,6 +8,8 @@ import spacy
 import subprocess
 import time
 import opencc
+import json
+import queue
 from tools import promptTemplate, history_process, process_sentences, BertVITS2_API, language_classification, remove_start_and_end_silence, remove_start_silence
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 from threading import Thread
@@ -163,7 +165,7 @@ async def bot(history, audio_volume, history_num):
                     await text_queue.put(response)
                     print(response, end="\n\n________________\n\n")
 
-            yield history, [prompt + history[-1][1]]
+            yield history, str([prompt + history[-1][1]])
 
         #處理最後一句
         original_num_sentences = num_sentences
@@ -184,17 +186,64 @@ async def bot(history, audio_volume, history_num):
     async for result in text_generation(prompt):
         yield result
 
-YouTube_chat_room_close = False
-async def YouTube_chat_room():
-    global YouTube_chat_room_close
 
-    while YouTube_chat_room_close:
-        await asyncio.sleep(0.1)
-    return
+YouTube_chat_room_open = True
+async def YouTube_chat_room(youtube_live_video_token, history, audio_volume, history_num):
+    global YouTube_chat_room_open
+    YouTube_chat_room_open = True
+    message = ""
+    log = ""
+
+    if youtube_live_video_token:
+        response_queue = queue.Queue()
+
+        YouTube_chat_processor = subprocess.Popen(["python", "Youtube_Chat.py", "-v", youtube_live_video_token], stdout=subprocess.PIPE)
+
+        while YouTube_chat_room_open:
+            def obtain_chat_message(q):
+                response = YouTube_chat_processor.stdout.readline().decode()
+                q.put(response)
+            
+            thread = Thread(target=obtain_chat_message, args=(response_queue,))
+            thread.start()
+
+            while thread.is_alive() and YouTube_chat_room_open:
+                await asyncio.sleep(0.1)
+
+            if YouTube_chat_room_open:
+                response_str = response_queue.get().replace("\'", "\"")
+                print(response_str)
+                if response_str.replace("\n", "") != "載入YouTube聊天室時發生錯誤":
+                    YouTube_chat_information = json.loads(response_str)
+                    YouTube_chat_author_name = YouTube_chat_information["author_name"]
+                    YouTube_chat_message = YouTube_chat_information["message"]
+                    print(f"聊天室【{YouTube_chat_author_name}:{YouTube_chat_message}】")
+                    history += [[YouTube_chat_message, ""]]
+
+                    async for result in bot(history, audio_volume, history_num):
+                        history, log = result
+                        yield message, history, log
+                else:
+                    log += "\n\n載入YouTube聊天室時發生錯誤"
+                    print("\n\n載入YouTube聊天室時發生錯誤")
+                    break
+
+            await asyncio.sleep(0.1)
+        
+        print("已停止獲取聊天室訊息")
+        log += "\n\n已停止獲取聊天室訊息"
+        YouTube_chat_processor.terminate()
+        yield message, history, log
+    else:
+        print("\n\nYouTube直播的影片代碼不可空白!!")
+        log += "\n\nYouTube直播的影片代碼不可空白!!"
+        yield message, history, log
+
 
 def close_YouTube_chat_room():
-    global YouTube_chat_room_close
-    YouTube_chat_room_close = True
+    global YouTube_chat_room_open
+    YouTube_chat_room_open = False
+    print("中止連接")
 
 #預設啟用深色模式
 js_func = """
@@ -209,22 +258,36 @@ function refresh() {
 """
 with gr.Blocks(theme=gr.themes.Base(), js=js_func) as demo:
     gr.Markdown("Dolly WebUI v0.0.1")
+
     with gr.Row():
-        with gr.Column(scale=3):
+        with gr.Column(scale=4):
             chatbot = gr.Chatbot(label="聊天室", bubble_full_width=False,)
-            message = gr.Textbox(label="訊息")
-            clear = gr.Button("清除聊天紀錄", variant="primary")
+
+            with gr.Row():
+                with gr.Column(scale=6):
+                    message = gr.Textbox(label="訊息")
+
+                with gr.Column(scale=1, min_width=0):
+                    clear = gr.Button("清除聊天紀錄", variant="primary", scale=1)
+
             log = gr.Textbox(label="日誌")
 
-        with gr.Column(scale=1):
-            connect_chat = gr.Button("連接YouTube聊天室", variant="primary")
-            stop_connect_chat = gr.Button("中止連接", variant="primary")
+        with gr.Column(scale=1, min_width=0):
+            youtube_live_video_token = gr.Textbox(label="YouTube直播的影片代碼")
+
+            with gr.Row():
+                with gr.Column(min_width=0):
+                    connect_chat = gr.Button("連接YouTube聊天室", variant="primary", scale=1)
+
+                with gr.Column(min_width=0):
+                    stop_connect_chat = gr.Button("中止連接", variant="primary", scale=1)
+
             audio_volume_slider = gr.Slider(label="音量", value=20, minimum=0, maximum=100, step=1)
             history_num_slider = gr.Slider(label="上下文數量", value=10, minimum=1, maximum=20, step=1)
 
     message.submit(user,[message,chatbot],[message,chatbot]).then(bot,[chatbot, audio_volume_slider, history_num_slider],[chatbot,log])#使用者輸入,然後AI回覆
     clear.click(lambda : None,None,chatbot)#清空聊天室
-    connect_chat.click(YouTube_chat_room,[message,chatbot],[message,chatbot,log])
+    connect_chat.click(YouTube_chat_room,[youtube_live_video_token, chatbot, audio_volume_slider, history_num_slider],[message,chatbot,log])
     stop_connect_chat.click(close_YouTube_chat_room)
 
 """
