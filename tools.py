@@ -9,7 +9,7 @@ from pydub.silence import detect_leading_silence
 
 nlp = spacy.load("zh_core_web_sm")
 
-
+#提示模板
 def promptTemplate(model_name,instruction,response="",rounds=1):
     match model_name:
         case "Taiwan-LLM-7B":
@@ -26,7 +26,7 @@ def history_process(history, model_name, num=9999):
     len_history = len(history)
 
     for index,layer_1 in enumerate(reversed(history)):
-        if index > num:
+        if index > num: #超過句數上限時,跳出迴圈
             break
 
         if index != 0:
@@ -36,7 +36,7 @@ def history_process(history, model_name, num=9999):
     
     return process
 
-#處理句子
+#處理句子   *待改善*
 def process_sentences(history, num_sentences, end=None, nlp=nlp):
     split_n = history[-1][1].split("\n")
     text = [i for i in split_n if i != ""]
@@ -56,7 +56,7 @@ def process_sentences(history, num_sentences, end=None, nlp=nlp):
     return response, num_sentences
 
 
-#初始設定
+#BertVITS2預設參數
 config = {
     "BertVITS2IP": "127.0.0.1:5000",  # Bert-VITS2伺服器IP
     "model_id" : "0",  # 模型ID  默認即可
@@ -99,10 +99,10 @@ def BertVITS2_API(text="Voice test", language="EN", style_text="", config=config
 
 #語言分類
 def language_classification(content):
-    language_result = ""
-    language_dict = {}
-    language_list = []
-    first_character = ""
+    language_result = "" #上一次的語言
+    language_dict = {} #分類用字典
+    language_list = [] #儲存用列表
+    first_character = "" #一開始是符號儲存的地方
     for text in content:
         if re.search(r"[\u4e00-\u9fff]", text):
             if language_result == "ZH":
@@ -133,20 +133,20 @@ def language_classification(content):
             else:
                 language_dict["content"] += text
 
-    language_list.append(language_dict)
-    language_list[0]["content"] = first_character + language_list[0]["content"]
+    language_list.append(language_dict) #儲存最後一個
+    language_list[0]["content"] = first_character + language_list[0]["content"] #加上一開始的符號
 
     return language_list
 
 #移除頭尾空白音訊
 def remove_start_and_end_silence(audio):
-    audio_pydub = AudioSegment.from_wav(io.BytesIO(audio))
-    start_silence = detect_leading_silence(audio_pydub)
-    end_silence = detect_leading_silence(audio_pydub.reverse())
-    audio_duration = len(audio_pydub)
-    after_trim_audio = audio_pydub[start_silence:audio_duration - end_silence]
-    audio_wav = after_trim_audio.export(None, format="wav")
-    audio_bytes = audio_wav.read()
+    audio_pydub = AudioSegment.from_wav(io.BytesIO(audio)) #轉換成pydhb可以讀的格式
+    start_silence = detect_leading_silence(audio_pydub) #計算頭空白音訊範圍
+    end_silence = detect_leading_silence(audio_pydub.reverse()) #計算尾空白音訊範圍
+    audio_duration = len(audio_pydub) #音訊總長度
+    after_trim_audio = audio_pydub[start_silence:audio_duration - end_silence] #只取扣除頭尾空白的部份
+    audio_wav = after_trim_audio.export(None, format="wav") #轉換成.wav格式
+    audio_bytes = audio_wav.read() #讀取成bytes
 
     return audio_bytes
 

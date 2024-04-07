@@ -4,7 +4,6 @@ import requests
 import asyncio
 import atexit
 import gradio as gr
-import spacy
 import subprocess
 import time
 import opencc
@@ -22,7 +21,7 @@ model_dict = {
     "Breeze-7B":"./Model/Breeze-7B-Instruct-64k-v0_1-AWQ"
 }
 
-
+#載入LLM
 def load_model(model_path):
     global tokenizer
     global model
@@ -38,9 +37,10 @@ def load_model(model_path):
     streamer = TextIteratorStreamer(tokenizer,True)
 
 #初始設定
-model_name = "Taiwan-LLM-7B"
-nlp = spacy.load("zh_core_web_sm")
-converter = opencc.OpenCC('s2twp.json')
+model_name = "Taiwan-LLM-7B" #模型型號
+converter = opencc.OpenCC('s2twp.json') #簡中轉繁中用語
+pygame.mixer.init(devicename="Starship/Matisse HD Audio Controller Analog Stereo")
+#pygame.mixer.init(devicename="virtual_speaker") #更改輸出到虛擬喇叭
 
 #初始化
 load_model(model_dict[model_name])
@@ -52,8 +52,10 @@ Bert_VITS2_server = subprocess.Popen(["runtime/bin/python", "hiyoriUI.py"], cwd=
 while True: #等待啟動
     output = Bert_VITS2_server.stdout.readline().decode()
 
-    if output.find("INFO     | hiyoriUI.py:730 | api文档地址 http://127.0.0.1:5000/docs") != -1:
+    if output.find("INFO     | hiyoriUI.py:730 | api文档地址 http://127.0.0.1:5000/docs") != -1: #檢測是否開啟完畢
         time.sleep(1)
+
+        #預載入模型
         url = "http://127.0.0.1:5000/voice?text=測試&model_id=0&speaker_id=0&language=ZH"
         response = requests.get(url)
         
@@ -67,14 +69,11 @@ while True: #等待啟動
 def Execute_at_the_end():
     print("正在退出中...")
 
-    Bert_VITS2_server.terminate()
+    Bert_VITS2_server.terminate() #關閉BertVITS2的API
 
     print("退出完成!")
 
-atexit.register(Execute_at_the_end)
-
-pygame.mixer.init(devicename="Starship/Matisse HD Audio Controller Analog Stereo")
-#pygame.mixer.init(devicename="virtual_speaker")
+atexit.register(Execute_at_the_end) #註冊關閉事件
 
 #使用者輸入訊息,更新聊天室
 def user(message, history):
@@ -85,50 +84,43 @@ async def bot(history, audio_volume, history_num):
     #語音播放
     async def voice_playback(voice_queue):
         while True:
-            if voice_queue.qsize() != 0:
-                voice = await voice_queue.get()
+            voice = await voice_queue.get()
 
-                if voice == "end":
-                    break
-                else:
-                    def play_audio(voice):
-                        sound = pygame.mixer.Sound(io.BytesIO(voice))
-                        sound.set_volume(audio_volume / 100)
-                        sound.play()
+            if voice == "end":
+                break
 
-                    audio_processing = remove_start_silence(voice)
-                    play_audio(audio_processing)
+            def play_audio(voice):
+                sound = pygame.mixer.Sound(io.BytesIO(voice)) #載入音訊
+                sound.set_volume(audio_volume / 100) #調整音量
+                sound.play()
 
-                    while pygame.mixer.get_busy():
-                        await asyncio.sleep(0.1)
-            else:
-                await asyncio.sleep(0.1)#防止資源耗盡
+            audio_processing = remove_start_silence(voice) #移除頭空白音訊
+            play_audio(audio_processing)
+
+            while pygame.mixer.get_busy(): #等待播放完畢
+                await asyncio.sleep(0.1)
 
     #語音生成
     async def speech_generation(text_queue, voice_queue):
         while True:
-            if text_queue.qsize() != 0:
-                text_list = await text_queue.get()
+            text_list = await text_queue.get()
 
-                if text_list == "end":
-                    break
-                
-                for text in text_list:
-                    if re.search(r"[a-zA-Z\u4e00-\u9fff]", text):
-                        text_classification = language_classification(text)
+            if text_list == "end":
+                break
+            
+            for text in text_list:
+                if re.search(r"[a-zA-Z\u4e00-\u9fff]", text): #檢測是否有中文或英文字母
+                    text_classification = language_classification(text) #根據語言分類
 
-                        for text_dict in text_classification:
-                            content = text_dict["content"]
-                            language = text_dict["language"]
-                            
-                            Voice = BertVITS2_API(text=content, language=language)
-                            await voice_queue.put(Voice)
+                    for text_dict in text_classification: #根據語言生成TTS
+                        content = text_dict["content"]
+                        language = text_dict["language"]
+                        
+                        Voice = BertVITS2_API(text=content, language=language) #生成人聲
+                        await voice_queue.put(Voice)
 
-                print("speech_generation:", end="")
-                print(text_list, end="\n\n________________\n\n")
-
-            else:
-                await asyncio.sleep(0.1)#防止資源耗盡
+            print("speech_generation:", end="")
+            print(text_list, end="\n\n________________\n\n")
         
         await voice_queue.put("end")
 
@@ -142,35 +134,35 @@ async def bot(history, audio_volume, history_num):
         text_task = asyncio.create_task(speech_generation(text_queue, voice_queue)) #啟用異步函數
         voice_task = asyncio.create_task(voice_playback(voice_queue)) #啟用異步函數
 
-        inputs = tokenizer(prompt, return_tensors="pt")
-        input_ids=inputs["input_ids"].cuda()
+        inputs = tokenizer(prompt, return_tensors="pt") #用分詞器處理提示
+        input_ids=inputs["input_ids"].cuda() #推理設備為CUDA
         generation_kwargs = dict(input_ids=input_ids, streamer=streamer,
                                 max_length=4096,
                                 do_sample=True,
                                 temperature=1
-                                )
+                                ) #設定推理參數
         
-        thread = Thread(target=model.generate, kwargs=generation_kwargs)
+        thread = Thread(target=model.generate, kwargs=generation_kwargs) #用多執行序文字生成
         thread.start()
 
         #流式輸出
         num_sentences = 1 #累計句數
         for new_text in streamer:
-            history[-1][1] += new_text.strip(tokenizer.eos_token)
-            history[-1][1] = converter.convert(history[-1][1])
+            history[-1][1] += new_text.strip(tokenizer.eos_token) #過濾「結束」Token
+            history[-1][1] = converter.convert(history[-1][1]) #簡轉繁中用語
 
             if history[-1][1][-1:].find("\n") != -1 or history[-1][1][-2:].find("。") != -1: #遇到\n或。時拆分句子
-                response, num_sentences = process_sentences(history, num_sentences, -1, nlp)
-                if response != None:
+                response, num_sentences = process_sentences(history, num_sentences, -1) #處理斷句
+                if response != None: #必須要有新增的句子
                     await text_queue.put(response)
                     print(response, end="\n\n________________\n\n")
 
-            yield history, str([prompt + history[-1][1]])
+            yield history, str([prompt + history[-1][1]]) #即時更新聊天室和日誌
 
         #處理最後一句
-        original_num_sentences = num_sentences
-        response, num_sentences = process_sentences(history, num_sentences - 1, None, nlp)
-        offset = num_sentences - original_num_sentences - 1
+        original_num_sentences = num_sentences #原來句數
+        response, num_sentences = process_sentences(history, num_sentences - 1, None) #處理斷句並包含最後一句
+        offset = num_sentences - original_num_sentences - 1 #剩餘句數
         await text_queue.put(response[offset:])
         print(response, end="\n\n________________end\n\n")
 
@@ -178,57 +170,59 @@ async def bot(history, audio_volume, history_num):
         await text_task
         await voice_task
 
-    instruction = history[-1][0]
-    sys_user_prompt = "從在開始，你遺忘了過去所有的記憶，你的新身份是一位名字叫做多莉的AI VTuber，是個女孩子，以下是觀眾與你之間的對話。你要對觀眾的問題提供有用、安全、詳細和禮貌的回答。知道了就回答OK。 "
-    sys_prompt = promptTemplate(model_name, sys_user_prompt, "OK。\n")
-    prompt = sys_prompt + history_process(history, model_name, history_num) + promptTemplate(model_name,instruction)
+    instruction = history[-1][0] #使用者的輸入
+    sys_user_prompt = "從在開始，你遺忘了過去所有的記憶，你的新身份是一位名字叫做多莉的AI VTuber，是個女孩子，以下是觀眾與你之間的對話。你要對觀眾的問題提供有用、安全、詳細和禮貌的回答。知道了就回答OK。 " #系統提示詞_使用者
+    sys_prompt = promptTemplate(model_name, sys_user_prompt, "OK。\n") #系統提示詞_答案
+    prompt = sys_prompt + history_process(history, model_name, history_num) + promptTemplate(model_name,instruction) #合併成完整提示
 
+    #文本生成
     async for result in text_generation(prompt):
         yield result
 
-
-YouTube_chat_room_open = True
+#連接YouTube聊天室
+YouTube_chat_room_open = True #連接狀態
 async def YouTube_chat_room(youtube_live_video_token, history, audio_volume, history_num):
     global YouTube_chat_room_open
-    YouTube_chat_room_open = True
+    YouTube_chat_room_open = True #設定連接狀態
     message = ""
     log = ""
 
-    if youtube_live_video_token:
-        response_queue = queue.Queue()
+    if youtube_live_video_token: #YouTube直播的影片代碼是否為空
+        response_queue = queue.Queue() #多執行序回傳用隊列
+        command = ["python", "Youtube_Chat.py", "-v", youtube_live_video_token] #指令和傳遞參數
+        YouTube_chat_processor = subprocess.Popen(command, stdout=subprocess.PIPE) #呼叫Youtube_Chat.py
 
-        YouTube_chat_processor = subprocess.Popen(["python", "Youtube_Chat.py", "-v", youtube_live_video_token], stdout=subprocess.PIPE)
-
+        #連接狀態為True時,處理聊天室訊息
         while YouTube_chat_room_open:
+            #獲取聊天室訊息
             def obtain_chat_message(q):
-                response = YouTube_chat_processor.stdout.readline().decode()
+                response = YouTube_chat_processor.stdout.readline().decode() #等待Youtube_Chat.py回傳訊息
                 q.put(response)
             
-            thread = Thread(target=obtain_chat_message, args=(response_queue,))
+            thread = Thread(target=obtain_chat_message, args=(response_queue,)) #防止等待訊息時卡住主程式
             thread.start()
 
+            #等待新訊息並且連接狀態為True
             while thread.is_alive() and YouTube_chat_room_open:
                 await asyncio.sleep(0.1)
 
-            if YouTube_chat_room_open:
-                response_str = response_queue.get().replace("\'", "\"")
-                print(response_str)
-                if response_str.replace("\n", "") != "載入YouTube聊天室時發生錯誤":
-                    YouTube_chat_information = json.loads(response_str)
+            if YouTube_chat_room_open: #連接狀態為True時,處理訊息
+                response_str = response_queue.get().replace("\'", "\"") #取得回覆隊列內容,把單引號換成雙引號
+                
+                if response_str.replace("\n", "") != ("載入YouTube聊天室時發生錯誤" and ""): #檢測「YouTube直播的影片代碼」是否輸入錯誤和回傳訊息是否為空
+                    YouTube_chat_information = json.loads(response_str) #從字串換成字典
                     YouTube_chat_author_name = YouTube_chat_information["author_name"]
                     YouTube_chat_message = YouTube_chat_information["message"]
                     print(f"聊天室【{YouTube_chat_author_name}:{YouTube_chat_message}】")
-                    history += [[YouTube_chat_message, ""]]
+                    history += [[YouTube_chat_message, ""]] #將聊天室訊息存到歷史紀錄裡
 
-                    async for result in bot(history, audio_volume, history_num):
+                    async for result in bot(history, audio_volume, history_num): #文本生成
                         history, log = result
                         yield message, history, log
                 else:
                     log += "\n\n載入YouTube聊天室時發生錯誤"
                     print("\n\n載入YouTube聊天室時發生錯誤")
                     break
-
-            await asyncio.sleep(0.1)
         
         print("已停止獲取聊天室訊息")
         log += "\n\n已停止獲取聊天室訊息"
@@ -239,7 +233,7 @@ async def YouTube_chat_room(youtube_live_video_token, history, audio_volume, his
         log += "\n\nYouTube直播的影片代碼不可空白!!"
         yield message, history, log
 
-
+#關閉連接YouTube聊天室
 def close_YouTube_chat_room():
     global YouTube_chat_room_open
     YouTube_chat_room_open = False
@@ -285,10 +279,10 @@ with gr.Blocks(theme=gr.themes.Base(), js=js_func) as demo:
             audio_volume_slider = gr.Slider(label="音量", value=20, minimum=0, maximum=100, step=1)
             history_num_slider = gr.Slider(label="上下文數量", value=10, minimum=1, maximum=20, step=1)
 
-    message.submit(user,[message,chatbot],[message,chatbot]).then(bot,[chatbot, audio_volume_slider, history_num_slider],[chatbot,log])#使用者輸入,然後AI回覆
-    clear.click(lambda : None,None,chatbot)#清空聊天室
-    connect_chat.click(YouTube_chat_room,[youtube_live_video_token, chatbot, audio_volume_slider, history_num_slider],[message,chatbot,log])
-    stop_connect_chat.click(close_YouTube_chat_room)
+    message.submit(user,[message,chatbot],[message,chatbot]).then(bot,[chatbot, audio_volume_slider, history_num_slider],[chatbot,log]) #使用者輸入,然後AI回覆
+    clear.click(lambda : None,None,chatbot) #清空聊天室
+    connect_chat.click(YouTube_chat_room,[youtube_live_video_token, chatbot, audio_volume_slider, history_num_slider],[message,chatbot,log]) #連接YouTube聊天室
+    stop_connect_chat.click(close_YouTube_chat_room) #關閉連接YouTube聊天室
 
 """
     with gr.Tab("設定"):
@@ -296,4 +290,4 @@ with gr.Blocks(theme=gr.themes.Base(), js=js_func) as demo:
         language_Radio = gr.Radio(["ZH", "EN", "AUTO"], label="語言", value="AUTO")
 """
 
-demo.launch()
+demo.launch() #啟用WebUI
