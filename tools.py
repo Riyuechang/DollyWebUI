@@ -1,13 +1,13 @@
 import io
 import re
-import spacy
+#import spacy
 import requests
 from urllib.parse import quote
 from pydub import AudioSegment
 from pydub.silence import detect_leading_silence
 
 
-nlp = spacy.load("zh_core_web_sm")
+#nlp = spacy.load("zh_core_web_sm")
 
 #提示模板
 def promptTemplate(model_name,instruction,response="",rounds=1):
@@ -32,12 +32,13 @@ def history_process(history, model_name, num=9999):
         if index != 0:
             instruction = layer_1[0]
             response = layer_1[1]
-            process = promptTemplate(model_name,instruction,response,len_history - index) + "\n" + process
+            Correction = len_history - index - (len_history - num - 1)
+            process = promptTemplate(model_name,instruction,response,Correction) + "\n" + process
     
     return process
 
 #處理句子   *待改善*
-def process_sentences(history, num_sentences, end=None, nlp=nlp):
+"""def process_sentences(history, num_sentences, end=None, nlp=nlp):
     split_n = history[-1][1].split("\n")
     text = [i for i in split_n if i != ""]
     
@@ -51,6 +52,35 @@ def process_sentences(history, num_sentences, end=None, nlp=nlp):
         num = len(sentences) - num_sentences
         num_sentences = len(sentences)
 
+        response = sentences[-(num + 1):end]
+    
+    return response, num_sentences"""
+
+#斷句
+def sentence_break(content):
+    text = ""
+    sentences = []
+    for char in content:
+        text += char
+
+        if re.match(r"[.。?？!！\n]", char):
+            sentences.append(text)
+            text = ""
+
+    if text != "":
+        sentences.append(text)
+        #text = ""
+    return sentences
+
+#處理句子
+def process_sentences(history, num_sentences, end=None):
+    content = history[-1][1]
+    sentences = sentence_break(content) #斷句
+    
+    response = None
+    if len(sentences) > num_sentences: #句數大於前值時,處理增加的句子
+        num = len(sentences) - num_sentences
+        num_sentences = len(sentences)
         response = sentences[-(num + 1):end]
     
     return response, num_sentences

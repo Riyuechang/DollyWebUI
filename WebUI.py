@@ -39,6 +39,7 @@ def load_model(model_path):
 #初始設定
 model_name = "Taiwan-LLM-7B" #模型型號
 converter = opencc.OpenCC('s2twp.json') #簡中轉繁中用語
+YouTube_chat_room_open = False #YouTub聊天室連接狀態
 pygame.mixer.init(devicename="Starship/Matisse HD Audio Controller Analog Stereo")
 #pygame.mixer.init(devicename="virtual_speaker") #更改輸出到虛擬喇叭
 
@@ -89,12 +90,16 @@ async def bot(history, audio_volume, history_num):
             if voice == "end":
                 break
 
+            if YouTube_chat_room_open:
+                response = requests.get(f"http://127.0.0.1:3840/text_to_display_add?data={voice[1]}")
+                print(f"網頁即時文字:{response.content}")
+
             def play_audio(voice):
                 sound = pygame.mixer.Sound(io.BytesIO(voice)) #載入音訊
                 sound.set_volume(audio_volume / 100) #調整音量
                 sound.play()
 
-            audio_processing = remove_start_silence(voice) #移除頭空白音訊
+            audio_processing = remove_start_silence(voice[0]) #移除頭空白音訊
             play_audio(audio_processing)
 
             while pygame.mixer.get_busy(): #等待播放完畢
@@ -117,7 +122,7 @@ async def bot(history, audio_volume, history_num):
                         language = text_dict["language"]
                         
                         Voice = BertVITS2_API(text=content, language=language) #生成人聲
-                        await voice_queue.put(Voice)
+                        await voice_queue.put([Voice, content])
 
             print("speech_generation:", end="")
             print(text_list, end="\n\n________________\n\n")
@@ -151,7 +156,8 @@ async def bot(history, audio_volume, history_num):
             history[-1][1] += new_text.strip(tokenizer.eos_token) #過濾「結束」Token
             history[-1][1] = converter.convert(history[-1][1]) #簡轉繁中用語
 
-            if history[-1][1][-1:].find("\n") != -1 or history[-1][1][-2:].find("。") != -1: #遇到\n或。時拆分句子
+            #if history[-1][1][-1:].find("\n") != -1 or history[-1][1][-2:].find("。") != -1: #遇到\n或。時拆分句子
+            if re.search(r"[.。?？!！\n]", new_text):
                 response, num_sentences = process_sentences(history, num_sentences, -1) #處理斷句
                 if response != None: #必須要有新增的句子
                     await text_queue.put(response)
@@ -180,7 +186,6 @@ async def bot(history, audio_volume, history_num):
         yield result
 
 #連接YouTube聊天室
-YouTube_chat_room_open = True #連接狀態
 async def YouTube_chat_room(youtube_live_video_token, history, audio_volume, history_num):
     global YouTube_chat_room_open
     YouTube_chat_room_open = True #設定連接狀態
@@ -191,6 +196,9 @@ async def YouTube_chat_room(youtube_live_video_token, history, audio_volume, his
         response_queue = queue.Queue() #多執行序回傳用隊列
         command = ["python", "Youtube_Chat.py", "-v", youtube_live_video_token] #指令和傳遞參數
         YouTube_chat_processor = subprocess.Popen(command, stdout=subprocess.PIPE) #呼叫Youtube_Chat.py
+
+        command = ["python", "web_real_time_subtitles/app.py"] #指令和傳遞參數
+        web_real_time_subtitles = subprocess.Popen(command, stdout=subprocess.PIPE) #呼叫web_real_time_subtitles/app.py
 
         #連接狀態為True時,處理聊天室訊息
         while YouTube_chat_room_open:
@@ -216,6 +224,9 @@ async def YouTube_chat_room(youtube_live_video_token, history, audio_volume, his
                     print(f"聊天室【{YouTube_chat_author_name}:{YouTube_chat_message}】")
                     history += [[YouTube_chat_message, ""]] #將聊天室訊息存到歷史紀錄裡
 
+                    response = requests.get(f"http://127.0.0.1:3840/clear")
+                    print(f"網頁即時文字:{response}")
+
                     async for result in bot(history, audio_volume, history_num): #文本生成
                         history, log = result
                         yield message, history, log
@@ -227,6 +238,7 @@ async def YouTube_chat_room(youtube_live_video_token, history, audio_volume, his
         print("已停止獲取聊天室訊息")
         log += "\n\n已停止獲取聊天室訊息"
         YouTube_chat_processor.terminate()
+        web_real_time_subtitles.terminate()
         yield message, history, log
     else:
         print("\n\nYouTube直播的影片代碼不可空白!!")
@@ -277,7 +289,7 @@ with gr.Blocks(theme=gr.themes.Base(), js=js_func) as demo:
                     stop_connect_chat = gr.Button("中止連接", variant="primary", scale=1)
 
             audio_volume_slider = gr.Slider(label="音量", value=20, minimum=0, maximum=100, step=1)
-            history_num_slider = gr.Slider(label="上下文數量", value=10, minimum=1, maximum=20, step=1)
+            history_num_slider = gr.Slider(label="上下文數量", value=3, minimum=1, maximum=20, step=1)
 
     message.submit(user,[message,chatbot],[message,chatbot]).then(bot,[chatbot, audio_volume_slider, history_num_slider],[chatbot,log]) #使用者輸入,然後AI回覆
     clear.click(lambda : None,None,chatbot) #清空聊天室

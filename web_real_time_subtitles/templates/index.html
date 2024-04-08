@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <title>text_to_display</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@100..900&family=Roboto&display=swap" rel="stylesheet">
+    
+    <!-- JQuery 的 CDN 連結 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"
+        integrity="sha512-894YE6QWD5I59HgZOGReFYm4dnWc1Qt5NtvYSaNcOP+u1T9qYdvdihz0PPSiiqn/+/3e7Jo4EaG7TubfWGUrMQ=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+        
+    <!-- Socket.IO 的 CDN 連結 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.2.0/socket.io.js"
+        integrity="sha512-WL6WGKMPBiM9PnHRYIn5YEtq0Z8XP4fkVb4qy7PP4vhmYQErJ/dySyXuFIMDf1eEYCXCrQrMJfkNwKc9gsjTjA=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    
+    <!-- Socket.IO 的使用 -->
+    <script type="text/javascript" charset="utf-8">
+        $(document).ready(function () {
+            // Socket.IO Start connect
+            var url = 'http://127.0.0.1';
+            var port = '3840';
+            var socket = io.connect(url + ':' + port);
+            
+            // Socket.IO text_to_display message
+            socket.on('text_to_display', function (data) {
+                document.getElementById('text_to_display').textContent = data;
+            });
+
+            // Socket.IO text_to_display message
+            socket.on('text_to_display_add', function (data) {
+                document.getElementById('text_to_display').textContent += data;
+            });
+
+            // Socket.IO clear
+            socket.on('clear', function () {
+                document.getElementById('text_to_display').textContent = "";
+            });
+        });
+
+        var scroll = setInterval(function(){window.scrollTo(0, document.body.scrollHeight)},100);
+    </script>
+    <style>
+        div {
+            font-size:36px;
+            line-height:1.2;
+            color: #FFF;
+            /*-webkit-text-stroke: 2px #552200;*/
+            text-shadow: -1px -1px 0 #420,
+                            1px -1px 0 #420,
+                            -1px 1px 0 #420,
+                            1px 1px 0 #420,
+                            3px 3px 3px #000;
+                            /*0px 3px 0 #420,
+                            3px 0px 0 #420,
+                            0px -3px 0 #420,
+                            -3px 0px 0 #420*/
+            word-wrap:break-word;
+            /*white-space:pre-line;*/
+            white-space:pre-wrap; 
+            font-family: "Noto Sans TC", sans-serif;
+        }
+
+        .center {
+            width: 800px;
+            height: 215px;
+            display: table;
+        }
+
+        .center div {
+            display: table-cell;
+            vertical-align: bottom;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <b>
+        <div class="center">
+            <div id='text_to_display'></div>
+        </div>
+    </b>
+</body>
+</html>
