@@ -1,27 +1,30 @@
 import io
 import re
-#import spacy
 import requests
+from config import config
 from urllib.parse import quote
 from pydub import AudioSegment
 from pydub.silence import detect_leading_silence
 
-
-#nlp = spacy.load("zh_core_web_sm")
-
 #提示模板
-def promptTemplate(model_name,instruction,response="",rounds=1):
-    match model_name:
-        case "Taiwan-LLM-7B":
-            prompt = f"USER: {instruction} ASSISTANT:{response}"
-        case "Taiwan-LLM-13B":
-            prompt = f"USER: {instruction} ASSISTANT:{response}"
-        case "Breeze-7B":
-            prompt = f"[INST] {instruction} [/INST] RESPONSE{rounds} [INST]{response}"
+def promptTemplate(
+    model_name: str,
+    instruction: str,
+    response: str="",
+    rounds: int=1
+) -> str:
+    model_config: dict = config.model.promptTemplate
+    prompt: str = model_config[model_name]
+    prompt = prompt.replace("{instruction}", instruction)
+    prompt = prompt.replace("{response}", response)
+    prompt = prompt.replace("{rounds}", str(rounds))
     return prompt
 
 #處理聊天紀錄
-def history_process(history, model_name, num=9999):
+def history_process(
+    history: list[list[str | None | tuple]], 
+    model_name: str, num: int=9999
+) -> str:
     process = ""
     len_history = len(history)
 
@@ -37,43 +40,36 @@ def history_process(history, model_name, num=9999):
     
     return process
 
-#處理句子   *待改善*
-"""def process_sentences(history, num_sentences, end=None, nlp=nlp):
-    split_n = history[-1][1].split("\n")
-    text = [i for i in split_n if i != ""]
-    
-    sentences = []
-    for i in text:
-        doc = nlp(i)
-        sentences += [sent.text for sent in doc.sents]
-
-    response = None
-    if len(sentences) > num_sentences: #句數大於前值時,處理增加的句子
-        num = len(sentences) - num_sentences
-        num_sentences = len(sentences)
-
-        response = sentences[-(num + 1):end]
-    
-    return response, num_sentences"""
-
 #斷句
-def sentence_break(content):
-    text = ""
-    sentences = []
+def sentence_break(content: str) -> list[str]:
+    previous_text_type = "" #上一個文字的類型
+    text = "" #文字暫存
+    sentences = [] #句子列表
+    character_to_wrap = r"[.。?？!！\n]" #要換行的字元
+
     for char in content:
-        text += char
+        if re.match(character_to_wrap, char): #是換行字元就暫存
+            text += char
+            previous_text_type = "newline_character" #更新文字類型
+        else:
+            if previous_text_type == "newline_character": #上一個是換行字元就增加新句子
+                sentences.append(text)
+                text = char
+                previous_text_type = "Other" #更新文字類型
+            else:
+                text += char #不是則暫存
 
-        if re.match(r"[.。?？!！\n]", char):
-            sentences.append(text)
-            text = ""
-
-    if text != "":
+    if text != "": #如果暫存不是空的就增加新句子
         sentences.append(text)
-        #text = ""
+
     return sentences
 
 #處理句子
-def process_sentences(history, num_sentences, end=None):
+def process_sentences(
+    history: list[list[str | None | tuple]], 
+    num_sentences: int, 
+    end: int | None=None
+) -> tuple[list[str], int]:
     content = history[-1][1]
     sentences = sentence_break(content) #斷句
     
@@ -85,21 +81,13 @@ def process_sentences(history, num_sentences, end=None):
     
     return response, num_sentences
 
-
-#BertVITS2預設參數
-config = {
-    "BertVITS2IP": "127.0.0.1:5000",  # Bert-VITS2伺服器IP
-    "model_id" : "0",  # 模型ID  默認即可
-    "sdp_ratio" : "0.5",  # SDP/DP混合比
-    "noise" : "0.6",  # 感情
-    "noisew" : "0.9",  # 音素長度
-    "length" : "1",  # 語速
-    "auto_translate" : "false",  # 自動翻譯
-    "auto_split" : "false",  # 自動切分
-    "style_weight" : "0.7"  # 風格權重
-}
-
-def BertVITS2_API(text="Voice test", language="EN", style_text="", config=config):
+#TTS API
+def BertVITS2_API(
+    text: str="Voice test", 
+    language: str="EN", 
+    style_text: str="", 
+    config: dict[str, str | int]=config.BertVITS2
+) -> bytes | None:
     # 合併成完整url
     audio_url = f"http://{config['BertVITS2IP']}/voice?"
     audio_url += f"text={quote(text)}&"
@@ -128,7 +116,7 @@ def BertVITS2_API(text="Voice test", language="EN", style_text="", config=config
         print(f"錯誤：無法下載檔案，狀態碼：{response.status_code}")
 
 #語言分類
-def language_classification(content):
+def language_classification(content: str) -> list[dict[str, str]]:
     language_result = "" #上一次的語言
     language_dict = {} #分類用字典
     language_list = [] #儲存用列表
@@ -169,7 +157,7 @@ def language_classification(content):
     return language_list
 
 #移除頭尾空白音訊
-def remove_start_and_end_silence(audio):
+def remove_start_and_end_silence(audio: bytes) -> bytes:
     audio_pydub = AudioSegment.from_wav(io.BytesIO(audio)) #轉換成pydhb可以讀的格式
     start_silence = detect_leading_silence(audio_pydub) #計算頭空白音訊範圍
     end_silence = detect_leading_silence(audio_pydub.reverse()) #計算尾空白音訊範圍
@@ -181,7 +169,7 @@ def remove_start_and_end_silence(audio):
     return audio_bytes
 
 #移除頭空白音訊
-def remove_start_silence(audio):
+def remove_start_silence(audio: bytes) -> bytes:
     audio_pydub = AudioSegment.from_wav(io.BytesIO(audio))
     start_silence = detect_leading_silence(audio_pydub)
     after_trim_audio = audio_pydub[start_silence:]

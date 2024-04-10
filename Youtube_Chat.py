@@ -1,6 +1,8 @@
+import re
 import sys
 import atexit
 import pytchat
+import requests
 from argparse import ArgumentParser
 from loguru import logger
 
@@ -11,21 +13,42 @@ logger.add(sys.stdout, format=fmt)
 
 #傳遞參數
 parser = ArgumentParser()
-parser.add_argument("-v", "--videotoken", help="YouTube直播的影片代碼", dest="videotoken", default="")
+parser.add_argument("-c", "--channelid", help="YouTube帳號代碼", dest="channelid", default="", type=str)
 args = parser.parse_args()
 
-try:
-    YouTube_chat = pytchat.create(video_id=args.videotoken) #讀取直播
+#提取直播的影片代碼
+youtube_channel_id = args.channelid
 
-    def Execute_at_the_end():
-        YouTube_chat.terminate() #停止獲取聊天室
+if not re.search(r"@", youtube_channel_id):
+    youtube_channel_id = "@" + youtube_channel_id
 
-    atexit.register(Execute_at_the_end) #註冊關閉事件
+youtube_url = f"https://www.youtube.com/{youtube_channel_id}/live"
+youtube_html = requests.get(youtube_url)
 
-    #讀取聊天室
-    while YouTube_chat.is_alive():
-        for response in YouTube_chat.get().sync_items(): #等待新訊息
-            data_dict = {"author_name" : response.author.name, "message" : response.message} #輸出成指定格式
-            logger.info(data_dict) #必須使用loguru的logger功能來輸出訊息,不能用print
-except:
+if youtube_html.status_code == 200:
+    youtube_html_content = youtube_html.content.decode()
+    video_id_search = re.search(r"(?<=https://www\.youtube\.com/watch\?v=)[a-zA-Z0-9]+", youtube_html_content)
+
+    if video_id_search:
+        video_id = video_id_search.group(0)
+        logger.info("已連接上YouTube直播")
+
+        try:
+            YouTube_chat = pytchat.create(video_id=video_id) #讀取直播
+
+            def Execute_at_the_end():
+                YouTube_chat.terminate() #停止獲取聊天室
+
+            atexit.register(Execute_at_the_end) #註冊關閉事件
+
+            #讀取聊天室
+            while YouTube_chat.is_alive():
+                for response in YouTube_chat.get().sync_items(): #等待新訊息
+                    data_dict = {"author_name" : response.author.name, "message" : response.message} #輸出成指定格式
+                    logger.info(data_dict) #必須使用loguru的logger功能來輸出訊息,不能用print
+        except:
+            logger.info("載入YouTube聊天室時發生錯誤")
+    else:
+        logger.info("載入YouTube聊天室時發生錯誤")
+else:
     logger.info("載入YouTube聊天室時發生錯誤")

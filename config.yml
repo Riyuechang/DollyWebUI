@@ -1,0 +1,63 @@
+#默認設定
+default:
+
+  #音量
+  audio_volume: 20
+
+  #音訊裝置名稱  未找到對應裝置則使用預設音訊裝置
+  audio_device_name: "virtual_speaker"
+
+  #TTS語言設定
+  TTS_Language: "AUTO"
+
+  #聊天紀錄數量
+  history_num: 3
+
+  #LLM名稱
+  model_name: "Taiwan-LLM-7B"
+
+  #YouTube頻道代碼  可以不用加'@'
+  YouTubeChannelID: "@Dolly_is_AIVTuber"
+
+#LLM設定
+model:
+
+  #LLM名稱
+  name:
+  - "Taiwan-LLM-7B"
+  - "Taiwan-LLM-13B"
+  - "Breeze-7B"
+
+  #提示模板
+  promptTemplate:
+    Taiwan-LLM-7B: "USER: {instruction} ASSISTANT:{response}"
+    Taiwan-LLM-13B: "USER: {instruction} ASSISTANT:{response}"
+    Breeze-7B: "[INST] {instruction} [/INST] RESPONSE{rounds} [INST]{response}"
+  
+  #中止Token
+  eos_token:
+    Taiwan-LLM-7B: "</s>"
+    Taiwan-LLM-13B: "</s>"
+    Breeze-7B: "[/INST]"
+  
+  #LLM路徑
+  path:
+    Taiwan-LLM-7B: "./Model/Taiwan-LLM-7B-v2.0.1-chat-awq"
+    Taiwan-LLM-13B: "./Model/Taiwan-LLM-13B-v2.0-chat-awq"
+    Breeze-7B: "./Model/Breeze-7B-Instruct-64k-v0_1-AWQ"
+
+#BertVITS2預設參數
+BertVITS2:
+
+  #Bert-VITS2伺服器IP
+  BertVITS2IP: "127.0.0.1:5000"
+
+  model_id: 0  #模型ID  默認即可
+  sdp_ratio: 0.5  #SDP/DP混合比
+  noise: 0.6  #感情
+  noisew: 0.9  #音素長度
+  length: 1  #語速
+  auto_translate: "false"  #自動翻譯
+  auto_split: "false"  #自動切分
+  style_weight: 0.7  #風格權重
+  path: "./TTS/Bert-VITS2" #BertVITS2路徑
