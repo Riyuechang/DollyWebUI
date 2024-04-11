@@ -1,7 +1,9 @@
 import io
 import re
 import requests
+from log import logger
 from config import config
+from typing import Literal
 from urllib.parse import quote
 from pydub import AudioSegment
 from pydub.silence import detect_leading_silence
@@ -23,21 +25,65 @@ def promptTemplate(
 #處理聊天紀錄
 def history_process(
     history: list[list[str | None | tuple]], 
-    model_name: str, num: int=9999
+    model_name: str, 
+    num: int=9999,
+    mode: Literal["rounds","word","token"]="rounds",
+    tokenizer: None=None
 ) -> str:
     process = ""
+    rounds_num = 0
     len_history = len(history)
 
-    for index,layer_1 in enumerate(reversed(history)):
-        if index > num: #超過句數上限時,跳出迴圈
-            break
+    def Processed_by_rounds(rounds_num: int) -> str:
+        text = ""
 
-        if index != 0:
-            instruction = layer_1[0]
-            response = layer_1[1]
-            Correction = len_history - index - (len_history - num - 1)
-            process = promptTemplate(model_name,instruction,response,Correction) + "\n" + process
-    
+        if rounds_num > len_history - 1: #"輪數"大於"歷史紀錄輪數",則"輪數"等於"歷史紀錄輪數",防止提示輪數超過總輪數
+            rounds_num = len_history - 1
+        
+        for index,layer_text in enumerate(reversed(history)):
+            if index > rounds_num: #超過輪數上限時,跳出迴圈
+                break
+
+            if index != 0:
+                instruction = layer_text[0]
+                response = layer_text[1]
+                Correction = len_history - index - (len_history - rounds_num - 1)
+                text = promptTemplate(model_name,instruction,response,Correction) + "\n" + text
+                
+        return text
+
+    match mode:
+        case "rounds": #根據回合數處理
+            process = Processed_by_rounds(num)
+
+        case "word": #根據字數處理
+            text = ""
+
+            for index,layer_text in enumerate(reversed(history)):
+                text += str(layer_text)
+
+                if len(text) > num: #超過字數上限時,跳出迴圈
+                    break
+                else: #沒有則加輪數1
+                    if index != 0: #不是第一輪才+1
+                        rounds_num += 1
+            
+            process = Processed_by_rounds(rounds_num)
+            
+        case "token":
+            text = ""
+
+            for index,layer_text in enumerate(reversed(history)):
+                text += str(layer_text)
+
+                if len(tokenizer.tokenize(text)) > num: #超過Token數上限時,跳出迴圈
+                    break
+                else: #沒有則加輪數1
+                    if index != 0: #不是第一輪才+1
+                        rounds_num += 1
+            
+            process = Processed_by_rounds(rounds_num)
+            
     return process
 
 #斷句
@@ -104,16 +150,14 @@ def BertVITS2_API(
     audio_url += f"style_weight={config['style_weight']}"
 
     # 呼叫API
-    print(audio_url)
+    #logger.info(audio_url)
     response = requests.get(audio_url)
 
     if response.status_code == 200:
-        print(f"檔案下載成功")
-        #with open("./_cache/audio.wav", 'wb') as file:
-        #    file.write(response.content)
+        logger.info(f"TTS語音生成完畢")
         return response.content
     else:
-        print(f"錯誤：無法下載檔案，狀態碼：{response.status_code}")
+        logger.error(f"錯誤：無法下載檔案，狀態碼：{response.status_code}")
 
 #語言分類
 def language_classification(content: str) -> list[dict[str, str]]:

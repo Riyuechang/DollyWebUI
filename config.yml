@@ -10,8 +10,14 @@ default:
   #TTS語言設定
   TTS_Language: "AUTO"
 
+  #聊天紀錄模式
+  history_mode: "word" #"rounds":輪數,"word":字數,"token":Token數
+
   #聊天紀錄數量
-  history_num: 3
+  history_num: 650
+
+  #聊天紀錄數量最大值
+  history_num_max: 1000
 
   #LLM名稱
   model_name: "Taiwan-LLM-7B"

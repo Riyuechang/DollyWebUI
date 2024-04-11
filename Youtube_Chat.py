@@ -8,7 +8,7 @@ from loguru import logger
 
 #設定log輸出格式
 logger.remove() #清空預設值
-fmt = "{message}"
+fmt = "{level}|{message}"
 logger.add(sys.stdout, format=fmt)
 
 #傳遞參數
@@ -44,11 +44,11 @@ if youtube_html.status_code == 200:
             #讀取聊天室
             while YouTube_chat.is_alive():
                 for response in YouTube_chat.get().sync_items(): #等待新訊息
-                    data_dict = {"author_name" : response.author.name, "message" : response.message} #輸出成指定格式
-                    logger.info(data_dict) #必須使用loguru的logger功能來輸出訊息,不能用print
+                    data = "{" + f"\"author_name\" : {response.author.name}, \"message\" : {response.message}" + "}" #輸出成指定格式
+                    logger.info(data)
         except:
-            logger.info("載入YouTube聊天室時發生錯誤")
+            logger.error("載入YouTube聊天室時發生錯誤")
     else:
-        logger.info("載入YouTube聊天室時發生錯誤")
+        logger.error("YouTube直播未開啟")
 else:
-    logger.info("載入YouTube聊天室時發生錯誤")
+    logger.error("無法連線到YouTube直播")

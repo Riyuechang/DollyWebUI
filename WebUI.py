@@ -11,6 +11,7 @@ import json
 import queue
 import pygame
 import pygame._sdl2.audio as sdl2_audio
+from log import logger
 from config import config
 from tools import promptTemplate, history_process, process_sentences, BertVITS2_API, language_classification, remove_start_silence
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
@@ -44,11 +45,11 @@ def initialize_audio(audio_device_names_list: list) -> str:
 
     if default_audio_device in audio_device_names_list: #判斷默認音訊設備是否在"音訊設備名稱清單"裡
         pygame.mixer.init(devicename=default_audio_device) #初始化混音器,並指定音訊設備
-        print(f"音訊初始化成功  設備名稱:{default_audio_device}")
+        logger.info(f"音訊初始化成功  設備名稱:{default_audio_device}")
         return default_audio_device
     else: #找不到默認音訊設備,則不指定音訊設備
         pygame.mixer.init() #初始化混音器
-        print("音訊初始化成功  設備名稱:預設音訊裝置")
+        logger.info("音訊初始化成功  設備名稱:預設音訊裝置")
         return "預設"
 
 #改變音訊設備
@@ -57,10 +58,10 @@ def change_audio_device(audio_device_name: str):
 
     if audio_device_name == "預設":
         pygame.mixer.init() #初始化混音器
-        print("改變音訊設備成功  設備名稱:預設音訊裝置")
+        logger.info("改變音訊設備成功  設備名稱:預設音訊裝置")
     else:
         pygame.mixer.init(devicename=audio_device_name) #初始化混音器,並指定音訊設備
-        print(f"改變音訊設備成功  設備名稱:{audio_device_name}")
+        logger.info(f"改變音訊設備成功  設備名稱:{audio_device_name}")
 
 #播放音訊
 def play_audio(
@@ -79,7 +80,7 @@ YouTube_chat_room_open = False #YouTub聊天室連接狀態
 #初始化
 model_path = config.model.path[model_name]
 load_model(model_path)
-print("LLM載入成功  型號:" + model_name)
+logger.info("LLM載入成功  型號:" + model_name)
 
 audio_device_names_list = get_audio_device_names() #取得音訊設備名稱清單
 audio_device_name = initialize_audio(audio_device_names_list) #初始化混音器,並取得音訊設備名稱
@@ -98,18 +99,18 @@ while True: #等待啟動
         response = requests.get(url)
         
         if response.status_code == 200:
-            print("TTS啟動成功")
+            logger.info("TTS啟動成功")
         else:
-            print(f"錯誤：無法下載檔案，狀態碼：{response.status_code}")
+            logger.error(f"錯誤：無法下載檔案，狀態碼：{response.status_code}")
             
         break
 
 def Execute_at_the_end():
-    print("正在退出中...")
+    logger.info("正在退出中...")
 
     Bert_VITS2_server.terminate() #關閉BertVITS2的API
 
-    print("退出完成!")
+    logger.info("退出完成!")
 
 atexit.register(Execute_at_the_end) #註冊關閉事件
 
@@ -137,7 +138,7 @@ async def bot(
             #同步顯示文字
             if YouTube_chat_room_open:
                 response = requests.get(f"http://127.0.0.1:3840/text_to_display_add?data={voice[1]}")
-                print(f"網頁即時文字:{response.content}")
+                logger.info(f"網頁即時文字狀態:{response.content}")
 
             audio_processing = remove_start_silence(voice[0]) #移除頭空白音訊
             play_audio(audio_processing, audio_volume)
@@ -161,11 +162,10 @@ async def bot(
                         content = text_dict["content"]
                         language = text_dict["language"]
                         
+                        logger.info(f"TTS內容  語言:{language}  文字:{[content]}")
+
                         Voice = BertVITS2_API(text=content, language=language) #生成人聲
                         await voice_queue.put([Voice, content])
-
-            print("speech_generation:", end="")
-            print(text_list, end="\n\n________________\n\n")
         
         await voice_queue.put("end")
 
@@ -200,7 +200,7 @@ async def bot(
                 response, num_sentences = process_sentences(history, num_sentences, -1) #處理斷句
                 if response != None: #必須要有新增的句子
                     await text_queue.put(response)
-                    print(response, end="\n\n________________\n\n")
+                    logger.info(f"斷句: {response}")
 
             yield history, str([prompt + history[-1][1]]) #即時更新聊天室和日誌
 
@@ -208,17 +208,19 @@ async def bot(
         original_num_sentences = num_sentences #原來句數
         response, num_sentences = process_sentences(history, num_sentences - 1, None) #處理斷句並包含最後一句
         offset = num_sentences - original_num_sentences - 1 #剩餘句數
-        await text_queue.put(response[offset:])
-        print(response, end="\n\n________________end\n\n")
+        remaining_sentences = response[offset:] #剩餘句子
+        await text_queue.put(remaining_sentences)
+        logger.info(f"最終斷句: {remaining_sentences}")
 
         await text_queue.put("end")
         await text_task
         await voice_task
 
     instruction = history[-1][0] #使用者的輸入
+    sys_prompt = "你是人工智慧助理，以下是用戶和人工智能助理之間的對話。你要對用戶的問題提供有用、安全、詳細和禮貌的回答。"
     sys_user_prompt = "從在開始，你遺忘了過去所有的記憶，你的新身份是一位名字叫做多莉的AI VTuber，是個女孩子，以下是觀眾與你之間的對話。你要對觀眾的問題提供有用、安全、詳細和禮貌的回答。知道了就回答OK。 " #系統提示詞_使用者
-    sys_prompt = promptTemplate(model_name, sys_user_prompt, "OK。\n") #系統提示詞_答案
-    prompt = sys_prompt + history_process(history, model_name, history_num) + promptTemplate(model_name,instruction) #合併成完整提示
+    merge_system_prompts = sys_prompt + promptTemplate(model_name, sys_user_prompt, "OK。\n") #系統提示詞_答案
+    prompt = merge_system_prompts + history_process(history, model_name, history_num, config.default.history_mode, tokenizer) + promptTemplate(model_name,instruction) #合併成完整提示
 
     #文本生成
     async for result in text_generation(prompt):
@@ -242,7 +244,7 @@ async def YouTube_chat_room(
         YouTube_chat_processor = subprocess.Popen(command, stdout=subprocess.PIPE) #呼叫Youtube_Chat.py
 
         startup_state = YouTube_chat_processor.stdout.readline().decode()
-        if startup_state.find("載入YouTube聊天室時發生錯誤") == -1: #檢測「YouTube直播的影片代碼」是否輸入錯誤和回傳訊息是否為空
+        if startup_state.split("|")[0] == "INFO": #回傳是否為"INFO"
             command = ["python", "web_real_time_subtitles/app.py"] #指令和傳遞參數
             web_real_time_subtitles = subprocess.Popen(command, stdout=subprocess.PIPE) #呼叫web_real_time_subtitles/app.py
 
@@ -251,7 +253,7 @@ async def YouTube_chat_room(
                 #獲取聊天室訊息
                 def obtain_chat_message(q):
                     response = YouTube_chat_processor.stdout.readline().decode() #等待Youtube_Chat.py回傳訊息
-                    q.put(response)
+                    q.put(response.lstrip("INFO|"))
                 
                 thread = Thread(target=obtain_chat_message, args=(response_queue,)) #防止等待訊息時卡住主程式
                 thread.start()
@@ -261,15 +263,15 @@ async def YouTube_chat_room(
                     await asyncio.sleep(0.1)
 
                 if YouTube_chat_room_open: #連接狀態為True時,處理訊息
-                    response_str = response_queue.get().replace("\'", "\"") #取得回覆隊列內容,把單引號換成雙引號
+                    response_str = response_queue.get() #取得回覆隊列內容
                     YouTube_chat_information = json.loads(response_str) #從字串換成字典
                     YouTube_chat_author_name = YouTube_chat_information["author_name"]
                     YouTube_chat_message = YouTube_chat_information["message"]
-                    print(f"聊天室【{YouTube_chat_author_name}:{YouTube_chat_message}】")
+                    logger.info(f"聊天室【{YouTube_chat_author_name}:{YouTube_chat_message}】")
                     history += [[YouTube_chat_message, ""]] #將聊天室訊息存到歷史紀錄裡
 
                     response = requests.get(f"http://127.0.0.1:3840/clear")
-                    print(f"網頁即時文字:{response}")
+                    logger.info(f"網頁即時文字狀態:{response}")
 
                     async for result in bot(history, audio_volume, history_num): #文本生成
                         history, log = result
@@ -277,23 +279,26 @@ async def YouTube_chat_room(
             
             web_real_time_subtitles.terminate()
         else:
-            log += "\n\n載入YouTube聊天室時發生錯誤"
-            print("\n\n載入YouTube聊天室時發生錯誤")
+            log_error_message = startup_state.lstrip("ERROR|").replace("\n", "")
+            log += f"\n\n{log_error_message}"
+            logger.error(f"{log_error_message}")
         
-        print("已停止獲取聊天室訊息")
+        logger.info("已停止獲取聊天室訊息")
         log += "\n\n已停止獲取聊天室訊息"
         YouTube_chat_processor.terminate()
         yield message, history, log
     else:
-        print("\n\nYouTube帳號代碼不可空白!!")
+        logger.error("YouTube帳號代碼不可空白!!")
         log += "\n\nYouTube帳號代碼不可空白!!"
         yield message, history, log
+    
+    YouTube_chat_room_open = False #設定連接狀態
 
 #關閉連接YouTube聊天室
 def close_YouTube_chat_room():
     global YouTube_chat_room_open
     YouTube_chat_room_open = False
-    print("中止連接")
+    logger.info("中止連接YouTube直播")
 
 #預設啟用深色模式
 js_func = """
@@ -347,11 +352,11 @@ with gr.Blocks(theme=gr.themes.Base(), js=js_func) as demo:
                     step=1
                 )
                 history_num_slider = gr.Slider(
-                    label="上下文數量", 
+                    label=f"上下文數量  模式:{config.default.history_mode}", 
                     value=config.default.history_num, 
-                    minimum=1, 
-                    maximum=20, 
-                    step=1
+                    minimum=1 if config.default.history_mode == "rounds" else 50, 
+                    maximum=config.default.history_num_max, 
+                    step=1 if config.default.history_mode == "rounds" else 50
                 )
 
     with gr.Tab("設定"):

@@ -1,4 +1,5 @@
 import yaml
+from typing import Literal
 
 
 class Default_Config:
@@ -7,14 +8,18 @@ class Default_Config:
         audio_volume: int,
         audio_device_name: str,
         TTS_Language: str,
+        history_mode: Literal["rounds","word","token"],
         history_num: int,
+        history_num_max: int,
         model_name: str,
         YouTubeChannelID: str
     ):
         self.audio_volume: int = audio_volume
         self.audio_device_name: str = audio_device_name
         self.TTS_Language: str = TTS_Language
+        self.history_mode: Literal["rounds","word","token"] = history_mode
         self.history_num: int = history_num
+        self.history_num_max: int = history_num_max
         self.model_name: str = model_name
         self.YouTubeChannelID: str = YouTubeChannelID
     
