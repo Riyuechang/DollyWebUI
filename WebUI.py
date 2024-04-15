@@ -1,21 +1,22 @@
-import io
 import re
-import requests
-import asyncio
-import atexit
-import gradio as gr
-import subprocess
 import time
-import opencc
-import json
 import queue
-import pygame
-import pygame._sdl2.audio as sdl2_audio
-from log import logger
-from config import config
-from tools import promptTemplate, history_process, process_sentences, BertVITS2_API, language_classification, remove_start_silence
-from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
+import atexit
+import asyncio
+import subprocess
+from ast import literal_eval
 from threading import Thread
+
+import opencc
+import requests
+import gradio as gr
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
+
+from config import config
+from tools.log import logger
+from tools.word_processing import promptTemplate, history_process, process_sentences, language_classification
+from tools.audio import get_audio_device_names, initialize_audio, remove_start_silence, change_audio_device, play_audio
+from tools.tts import BertVITS2_API
 
 #載入LLM
 def load_model(model_path: str):
@@ -31,46 +32,6 @@ def load_model(model_path: str):
     device_map="cuda:0"
     )   
     streamer = TextIteratorStreamer(tokenizer,True)
-
-#取得音訊設備名稱
-def get_audio_device_names() -> list[str]:
-    pygame.mixer.init() #初始化混音器
-    audio_device_names = sdl2_audio.get_audio_device_names(False) #取得音訊設備名稱
-    pygame.mixer.quit() #退出混音器
-    return audio_device_names
-
-#初始化音訊
-def initialize_audio(audio_device_names_list: list) -> str:
-    default_audio_device = config.default.audio_device_name
-
-    if default_audio_device in audio_device_names_list: #判斷默認音訊設備是否在"音訊設備名稱清單"裡
-        pygame.mixer.init(devicename=default_audio_device) #初始化混音器,並指定音訊設備
-        logger.info(f"音訊初始化成功  設備名稱:{default_audio_device}")
-        return default_audio_device
-    else: #找不到默認音訊設備,則不指定音訊設備
-        pygame.mixer.init() #初始化混音器
-        logger.info("音訊初始化成功  設備名稱:預設音訊裝置")
-        return "預設"
-
-#改變音訊設備
-def change_audio_device(audio_device_name: str):
-    pygame.mixer.quit() #退出混音器
-
-    if audio_device_name == "預設":
-        pygame.mixer.init() #初始化混音器
-        logger.info("改變音訊設備成功  設備名稱:預設音訊裝置")
-    else:
-        pygame.mixer.init(devicename=audio_device_name) #初始化混音器,並指定音訊設備
-        logger.info(f"改變音訊設備成功  設備名稱:{audio_device_name}")
-
-#播放音訊
-def play_audio(
-    voice: bytes, 
-    audio_volume: int
-):
-    sound = pygame.mixer.Sound(io.BytesIO(voice)) #載入音訊
-    sound.set_volume(audio_volume / 100) #調整音量
-    sound.play()
 
 #初始設定
 model_name = config.default.model_name #模型型號
@@ -141,10 +102,7 @@ async def bot(
                 logger.info(f"網頁即時文字狀態:{response.content}")
 
             audio_processing = remove_start_silence(voice[0]) #移除頭空白音訊
-            play_audio(audio_processing, audio_volume)
-
-            while pygame.mixer.get_busy(): #等待播放完畢
-                await asyncio.sleep(0.1)
+            await play_audio(audio_processing, audio_volume)
 
     #語音生成
     async def speech_generation(text_queue, voice_queue):
@@ -217,7 +175,7 @@ async def bot(
         await voice_task
 
     instruction = history[-1][0] #使用者的輸入
-    sys_prompt = "你是人工智慧助理，以下是用戶和人工智能助理之間的對話。你要對用戶的問題提供有用、安全、詳細和禮貌的回答。"
+    sys_prompt = "You are a helpful AI assistant built by MediaTek Research. The user you are helping speaks Traditional Chinese and comes from Taiwan."
     sys_user_prompt = "從在開始，你遺忘了過去所有的記憶，你的新身份是一位名字叫做多莉的AI VTuber，是個女孩子，以下是觀眾與你之間的對話。你要對觀眾的問題提供有用、安全、詳細和禮貌的回答。知道了就回答OK。 " #系統提示詞_使用者
     merge_system_prompts = sys_prompt + promptTemplate(model_name, sys_user_prompt, "OK。\n") #系統提示詞_答案
     prompt = merge_system_prompts + history_process(history, model_name, history_num, config.default.history_mode, tokenizer) + promptTemplate(model_name,instruction) #合併成完整提示
@@ -245,6 +203,8 @@ async def YouTube_chat_room(
 
         startup_state = YouTube_chat_processor.stdout.readline().decode()
         if startup_state.split("|")[0] == "INFO": #回傳是否為"INFO"
+            logger.info("已連接上YouTube直播")
+
             command = ["python", "web_real_time_subtitles/app.py"] #指令和傳遞參數
             web_real_time_subtitles = subprocess.Popen(command, stdout=subprocess.PIPE) #呼叫web_real_time_subtitles/app.py
 
@@ -264,7 +224,8 @@ async def YouTube_chat_room(
 
                 if YouTube_chat_room_open: #連接狀態為True時,處理訊息
                     response_str = response_queue.get() #取得回覆隊列內容
-                    YouTube_chat_information = json.loads(response_str) #從字串換成字典
+                    logger.info(response_str)
+                    YouTube_chat_information = literal_eval(response_str) #從字串換成字典
                     YouTube_chat_author_name = YouTube_chat_information["author_name"]
                     YouTube_chat_message = YouTube_chat_information["message"]
                     logger.info(f"聊天室【{YouTube_chat_author_name}:{YouTube_chat_message}】")

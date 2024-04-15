@@ -20,7 +20,7 @@ default:
   history_num_max: 1000
 
   #LLM名稱
-  model_name: "Taiwan-LLM-7B"
+  model_name: "Breeze-7B"
 
   #YouTube頻道代碼  可以不用加'@'
   YouTubeChannelID: "@Dolly_is_AIVTuber"
@@ -38,7 +38,7 @@ model:
   promptTemplate:
     Taiwan-LLM-7B: "USER: {instruction} ASSISTANT:{response}"
     Taiwan-LLM-13B: "USER: {instruction} ASSISTANT:{response}"
-    Breeze-7B: "[INST] {instruction} [/INST] RESPONSE{rounds} [INST]{response}"
+    Breeze-7B: "[INST] {instruction} [/INST] {response} "
   
   #中止Token
   eos_token:
@@ -50,7 +50,7 @@ model:
   path:
     Taiwan-LLM-7B: "./Model/Taiwan-LLM-7B-v2.0.1-chat-awq"
     Taiwan-LLM-13B: "./Model/Taiwan-LLM-13B-v2.0-chat-awq"
-    Breeze-7B: "./Model/Breeze-7B-Instruct-64k-v0_1-AWQ"
+    Breeze-7B: "./Model/Breeze-7B-Instruct-v1_0-AWQ"
 
 #BertVITS2預設參數
 BertVITS2:

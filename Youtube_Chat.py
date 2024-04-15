@@ -1,9 +1,11 @@
 import re
 import sys
 import atexit
+from argparse import ArgumentParser
+
 import pytchat
 import requests
-from argparse import ArgumentParser
+
 from loguru import logger
 
 #設定log輸出格式
@@ -27,7 +29,7 @@ youtube_html = requests.get(youtube_url)
 
 if youtube_html.status_code == 200:
     youtube_html_content = youtube_html.content.decode()
-    video_id_search = re.search(r"(?<=https://www\.youtube\.com/watch\?v=)[a-zA-Z0-9]+", youtube_html_content)
+    video_id_search = re.search(r"(?<=https://www\.youtube\.com/watch\?v=)[a-zA-Z0-9-_]+", youtube_html_content)
 
     if video_id_search:
         video_id = video_id_search.group(0)
@@ -44,7 +46,7 @@ if youtube_html.status_code == 200:
             #讀取聊天室
             while YouTube_chat.is_alive():
                 for response in YouTube_chat.get().sync_items(): #等待新訊息
-                    data = "{" + f"\"author_name\" : {response.author.name}, \"message\" : {response.message}" + "}" #輸出成指定格式
+                    data = {"author_name" : response.author.name, "message" : response.message} #輸出成指定格式
                     logger.info(data)
         except:
             logger.error("載入YouTube聊天室時發生錯誤")
