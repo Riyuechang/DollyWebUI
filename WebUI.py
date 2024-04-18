@@ -17,6 +17,8 @@ from tools.log import logger
 from tools.word_processing import promptTemplate, history_process, process_sentences, language_classification
 from tools.audio import get_audio_device_names, initialize_audio, remove_start_silence, change_audio_device, play_audio
 from tools.tts import BertVITS2_API
+from VTube_Studio_API import connect, Connect_to_VTube_Studio_API, websocket_send, HotkeysInCurrentModelRequest, hotkeyID_list_processing, HotkeyTriggerRequest
+from sentiment_analysis import sentiment_analysis
 
 #載入LLM
 def load_model(model_path: str):
@@ -34,12 +36,12 @@ def load_model(model_path: str):
     streamer = TextIteratorStreamer(tokenizer,True)
 
 #初始設定
-model_name = config.default.model_name #模型型號
+model_name = config.default.llm_model_name #模型型號
 converter = opencc.OpenCC('s2twp.json') #簡中轉繁中用語
 YouTube_chat_room_open = False #YouTub聊天室連接狀態
 
 #初始化
-model_path = config.model.path[model_name]
+model_path = config.llm_model.path[model_name]
 load_model(model_path)
 logger.info("LLM載入成功  型號:" + model_name)
 
@@ -86,23 +88,70 @@ def user(
 async def bot(
     history: list[list[str | None | tuple]], 
     audio_volume: int, 
-    history_num: int
+    history_num: int,
+    checkable_settings: list[str]
 ):
     #語音播放
     async def voice_playback(voice_queue):
-        while True:
-            voice = await voice_queue.get()
+        try:
+            VTube_Studio_API_connection_status = False #VTube_Studio_API連接狀態
+            if "情緒分析" in checkable_settings: #是否啟用情緒分析
+                VTube_Studio_API = connect(config.VTube_Studio.VTube_Studio_API_URL) #連接VTube_Studio_API
+                VTube_Studio_API_connection_status = Connect_to_VTube_Studio_API( #嘗試與VTube_Studio_API握手
+                    VTube_Studio_API, 
+                    config.VTube_Studio.pluginName, 
+                    config.VTube_Studio.pluginDeveloper
+                )
 
-            if voice == "end":
-                break
+                if VTube_Studio_API_connection_status: #握手成功
+                    hotkeyID_list = websocket_send( #取得快速鍵列表
+                        VTube_Studio_API, 
+                        HotkeysInCurrentModelRequest()
+                    )
+                    hotkey_correspondence_table = hotkeyID_list_processing(hotkeyID_list) #整理快速鍵列表
 
-            #同步顯示文字
-            if YouTube_chat_room_open:
-                response = requests.get(f"http://127.0.0.1:3840/text_to_display_add?data={voice[1]}")
-                logger.info(f"網頁即時文字狀態:{response.content}")
+            #主程式
+            while True:
+                voice = await voice_queue.get()
 
-            audio_processing = remove_start_silence(voice[0]) #移除頭空白音訊
-            await play_audio(audio_processing, audio_volume)
+                if voice == "end":
+                    break
+
+                
+                def hotkey_trigger(sentiment_label): #觸發快速鍵
+                    hotkey_name = config.VTube_Studio.sentiment_analysis[sentiment_label] #根據設定檔轉換成對應快速鍵名稱
+                    hotkeyID = hotkey_correspondence_table[hotkey_name] #根據快速鍵名稱轉換成快速鍵ID
+                    _ = websocket_send( #觸發對應快速鍵
+                        VTube_Studio_API,
+                        HotkeyTriggerRequest(hotkeyID)
+                    )
+
+                    logger.info(f"觸發VTube Studio快速鍵:{hotkey_name}")
+
+                
+                if ("情緒分析" in checkable_settings) and VTube_Studio_API_connection_status: #是否啟用情緒分析
+                    sentiment_label = sentiment_analysis(voice[1]) #情緒分析
+                    logger.info(f"情緒:{sentiment_label}")
+                    hotkey_trigger(sentiment_label) #觸發快速鍵
+
+                #同步顯示文字
+                if YouTube_chat_room_open:
+                    response = requests.get(f"http://127.0.0.1:3840/text_to_display_add?data={voice[1]}")
+                    logger.info(f"網頁即時文字狀態:{response.content}")
+
+                audio_processing = remove_start_silence(voice[0]) #移除頭空白音訊
+                await play_audio(audio_processing, audio_volume)
+        finally:
+            try:
+                hotkey_trigger(config.default.sentiment) #觸發默認情緒的快速鍵
+                logger.info("已觸發默認情緒的快速鍵")
+                VTube_Studio_API.close()
+                logger.info("已釋放VTube_Studio_API資源")
+            except:
+                logger.info("未有需要釋放的VTube_Studio_API資源")
+    
+        
+                
 
     #語音生成
     async def speech_generation(text_queue, voice_queue):
@@ -178,7 +227,7 @@ async def bot(
     sys_prompt = "You are a helpful AI assistant built by MediaTek Research. The user you are helping speaks Traditional Chinese and comes from Taiwan."
     sys_user_prompt = "從在開始，你遺忘了過去所有的記憶，你的新身份是一位名字叫做多莉的AI VTuber，是個女孩子，以下是觀眾與你之間的對話。你要對觀眾的問題提供有用、安全、詳細和禮貌的回答。知道了就回答OK。 " #系統提示詞_使用者
     merge_system_prompts = sys_prompt + promptTemplate(model_name, sys_user_prompt, "OK。\n") #系統提示詞_答案
-    prompt = merge_system_prompts + history_process(history, model_name, history_num, config.default.history_mode, tokenizer) + promptTemplate(model_name,instruction) #合併成完整提示
+    prompt = merge_system_prompts + history_process(history, model_name, history_num, config.default.history.history_mode, tokenizer) + promptTemplate(model_name,instruction) #合併成完整提示
 
     #文本生成
     async for result in text_generation(prompt):
@@ -189,7 +238,8 @@ async def YouTube_chat_room(
     youtube_channel_id: str, 
     history: list[list[str | None | tuple]], 
     audio_volume: int, 
-    history_num: int
+    history_num: int,
+    checkable_settings: list[str]
 ):
     global YouTube_chat_room_open
     YouTube_chat_room_open = True #設定連接狀態
@@ -234,7 +284,7 @@ async def YouTube_chat_room(
                     response = requests.get(f"http://127.0.0.1:3840/clear")
                     logger.info(f"網頁即時文字狀態:{response}")
 
-                    async for result in bot(history, audio_volume, history_num): #文本生成
+                    async for result in bot(history, audio_volume, history_num, checkable_settings): #文本生成
                         history, log = result
                         yield message, history, log
             
@@ -298,7 +348,12 @@ with gr.Blocks(theme=gr.themes.Base(), js=js_func) as demo:
 
                     with gr.Column(min_width=0):
                         stop_connect_chat = gr.Button("中止連接", variant="primary", scale=1)
-
+                
+                checkable_settings_checkboxgroup = gr.CheckboxGroup(
+                    ["情緒分析"], 
+                    label="可選項",
+                    value=config.default.checkable_settings
+                )
                 audio_device_dropdown = gr.Dropdown(
                     ["預設"] + audio_device_names_list, 
                     label="音訊裝置", 
@@ -307,24 +362,24 @@ with gr.Blocks(theme=gr.themes.Base(), js=js_func) as demo:
                 )
                 audio_volume_slider = gr.Slider(
                     label="音量", 
-                    value=config.default.audio_volume, 
+                    value=config.default.audio.audio_volume, 
                     minimum=0, 
                     maximum=100, 
                     step=1
                 )
                 history_num_slider = gr.Slider(
-                    label=f"上下文數量  模式:{config.default.history_mode}", 
-                    value=config.default.history_num, 
-                    minimum=1 if config.default.history_mode == "rounds" else 50, 
-                    maximum=config.default.history_num_max, 
-                    step=1 if config.default.history_mode == "rounds" else 50
+                    label=f"上下文數量  模式:{config.default.history.history_mode}", 
+                    value=config.default.history.history_num, 
+                    minimum=1 if config.default.history.history_mode == "rounds" else 50, 
+                    maximum=config.default.history.history_num_max, 
+                    step=1 if config.default.history.history_mode == "rounds" else 50
                 )
 
     with gr.Tab("設定"):
         model_name_Radio = gr.Radio(
-            config.model.name, 
+            config.llm_model.name, 
             label="LLM Model", 
-            value=config.default.model_name
+            value=config.default.llm_model_name
         )
         language_Radio = gr.Radio(
             ["ZH", "EN", "AUTO"], 
@@ -338,13 +393,13 @@ with gr.Blocks(theme=gr.themes.Base(), js=js_func) as demo:
         [message,chatbot]
     ).then(
         bot,
-        [chatbot, audio_volume_slider, history_num_slider],
+        [chatbot, audio_volume_slider, history_num_slider, checkable_settings_checkboxgroup],
         [chatbot,log]
     )
     clear.click(lambda : None,None,chatbot) #清空聊天室
     connect_chat.click( #連接YouTube聊天室
         YouTube_chat_room,
-        [youtube_channel_id, chatbot, audio_volume_slider, history_num_slider],
+        [youtube_channel_id, chatbot, audio_volume_slider, history_num_slider, checkable_settings_checkboxgroup],
         [message,chatbot,log]
     )
     stop_connect_chat.click(close_YouTube_chat_room) #關閉連接YouTube聊天室

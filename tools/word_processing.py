@@ -10,7 +10,7 @@ def promptTemplate(
     response: str="",
     rounds: int=1
 ) -> str:
-    model_config: dict = config.model.promptTemplate
+    model_config: dict = config.llm_model.promptTemplate
     prompt: str = model_config[model_name]
     prompt = prompt.replace("{instruction}", instruction)
     prompt = prompt.replace("{response}", response)

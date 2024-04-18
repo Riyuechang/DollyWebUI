@@ -1,32 +1,46 @@
 #默認設定
 default:
 
-  #音量
-  audio_volume: 20
-
-  #音訊裝置名稱  未找到對應裝置則使用預設音訊裝置
-  audio_device_name: "virtual_speaker"
+  #YouTube頻道代碼  可以不用加'@'
+  YouTubeChannelID: "@Dolly_is_AIVTuber"
 
   #TTS語言設定
   TTS_Language: "AUTO"
 
-  #聊天紀錄模式
-  history_mode: "word" #"rounds":輪數,"word":字數,"token":Token數
-
-  #聊天紀錄數量
-  history_num: 650
-
-  #聊天紀錄數量最大值
-  history_num_max: 1000
-
   #LLM名稱
-  model_name: "Breeze-7B"
+  llm_model_name: "Breeze-7B"
 
-  #YouTube頻道代碼  可以不用加'@'
-  YouTubeChannelID: "@Dolly_is_AIVTuber"
+  #情緒分析模型
+  sentiment_analysis_model_name: "xuyuan-trial-sentiment-bert-chinese"
+
+  #情緒
+  sentiment: "none"
+
+  #可選項
+  checkable_settings:
+  - "情緒分析"
+
+  #音訊
+  audio:
+    #音量
+    audio_volume: 20
+
+    #音訊裝置名稱  未找到對應裝置則使用預設音訊裝置
+    audio_device_name: "virtual_speaker"
+
+  #聊天紀錄
+  history:
+    #聊天紀錄模式
+    history_mode: "word" #"rounds":輪數,"word":字數,"token":Token數
+
+    #聊天紀錄數量
+    history_num: 650
+
+    #聊天紀錄數量最大值
+    history_num_max: 1000
 
 #LLM設定
-model:
+llm_model:
 
   #LLM名稱
   name:
@@ -44,13 +58,13 @@ model:
   eos_token:
     Taiwan-LLM-7B: "</s>"
     Taiwan-LLM-13B: "</s>"
-    Breeze-7B: "[/INST]"
+    Breeze-7B: "</s>"
   
   #LLM路徑
   path:
-    Taiwan-LLM-7B: "./Model/Taiwan-LLM-7B-v2.0.1-chat-awq"
-    Taiwan-LLM-13B: "./Model/Taiwan-LLM-13B-v2.0-chat-awq"
-    Breeze-7B: "./Model/Breeze-7B-Instruct-v1_0-AWQ"
+    Taiwan-LLM-7B: "./llm_model/Taiwan-LLM-7B-v2.0.1-chat-awq"
+    Taiwan-LLM-13B: "./llm_model/Taiwan-LLM-13B-v2.0-chat-awq"
+    Breeze-7B: "./llm_model/Breeze-7B-Instruct-v1_0-AWQ"
 
 #BertVITS2預設參數
 BertVITS2:
@@ -67,3 +81,25 @@ BertVITS2:
   auto_split: "false"  #自動切分
   style_weight: 0.7  #風格權重
   path: "./TTS/Bert-VITS2" #BertVITS2路徑
+
+#VTube Studio
+VTube_Studio:
+  #外掛名稱
+  pluginName: "情緒控制"
+
+  #作者名稱
+  pluginDeveloper: "Riyuechang"
+
+  #VTube Studio API URL
+  VTube_Studio_API_URL: "ws://localhost:8001"
+
+  #情緒控制對應的快速鍵
+  sentiment_analysis:
+    happiness: "開心" #幸福
+    like: "開心" #喜歡
+    surprise: "驚訝" #驚喜
+    none: "一般" #無
+    fear: "一般" #害怕
+    disgust: "不開心" #厭惡
+    sadness: "不開心" #悲傷
+    anger: "生氣" #憤怒

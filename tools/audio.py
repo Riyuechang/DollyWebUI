@@ -18,7 +18,7 @@ def get_audio_device_names() -> list[str]:
 
 #初始化音訊
 def initialize_audio(audio_device_names_list: list) -> str:
-    default_audio_device = config.default.audio_device_name
+    default_audio_device = config.default.audio.audio_device_name
 
     if default_audio_device in audio_device_names_list: #判斷默認音訊設備是否在"音訊設備名稱清單"裡
         pygame.mixer.init(devicename=default_audio_device) #初始化混音器,並指定音訊設備
