@@ -18,7 +18,7 @@ from tools.word_processing import promptTemplate, history_process, process_sente
 from tools.audio import get_audio_device_names, initialize_audio, remove_start_silence, change_audio_device, play_audio
 from tools.tts import BertVITS2_API
 from VTube_Studio_API import connect, Connect_to_VTube_Studio_API, websocket_send, HotkeysInCurrentModelRequest, hotkeyID_list_processing, HotkeyTriggerRequest
-from sentiment_analysis import sentiment_analysis
+from sentiment_analysis import multi_segment_sentiment_analysis
 
 #載入LLM
 def load_model(model_path: str):
@@ -93,65 +93,24 @@ async def bot(
 ):
     #語音播放
     async def voice_playback(voice_queue):
-        try:
-            VTube_Studio_API_connection_status = False #VTube_Studio_API連接狀態
-            if "情緒分析" in checkable_settings: #是否啟用情緒分析
-                VTube_Studio_API = connect(config.VTube_Studio.VTube_Studio_API_URL) #連接VTube_Studio_API
-                VTube_Studio_API_connection_status = Connect_to_VTube_Studio_API( #嘗試與VTube_Studio_API握手
-                    VTube_Studio_API, 
-                    config.VTube_Studio.pluginName, 
-                    config.VTube_Studio.pluginDeveloper
-                )
+        while True:
+            voice = await voice_queue.get()
 
-                if VTube_Studio_API_connection_status: #握手成功
-                    hotkeyID_list = websocket_send( #取得快速鍵列表
-                        VTube_Studio_API, 
-                        HotkeysInCurrentModelRequest()
-                    )
-                    hotkey_correspondence_table = hotkeyID_list_processing(hotkeyID_list) #整理快速鍵列表
+            if voice == "end":
+                break
 
-            #主程式
-            while True:
-                voice = await voice_queue.get()
+            if ("情緒分析" in checkable_settings) and VTube_Studio_API_connection_status: #是否啟用情緒分析
+                sentiment_label = multi_segment_sentiment_analysis(voice[1]) #情緒分析
+                logger.info(f"情緒:{sentiment_label}")
+                hotkey_trigger(sentiment_label) #觸發快速鍵
 
-                if voice == "end":
-                    break
+            #同步顯示文字
+            if YouTube_chat_room_open:
+                response = requests.get(f"http://127.0.0.1:3840/text_to_display_add?data={voice[1]}")
+                logger.info(f"網頁即時文字狀態:{response.content}")
 
-                
-                def hotkey_trigger(sentiment_label): #觸發快速鍵
-                    hotkey_name = config.VTube_Studio.sentiment_analysis[sentiment_label] #根據設定檔轉換成對應快速鍵名稱
-                    hotkeyID = hotkey_correspondence_table[hotkey_name] #根據快速鍵名稱轉換成快速鍵ID
-                    _ = websocket_send( #觸發對應快速鍵
-                        VTube_Studio_API,
-                        HotkeyTriggerRequest(hotkeyID)
-                    )
-
-                    logger.info(f"觸發VTube Studio快速鍵:{hotkey_name}")
-
-                
-                if ("情緒分析" in checkable_settings) and VTube_Studio_API_connection_status: #是否啟用情緒分析
-                    sentiment_label = sentiment_analysis(voice[1]) #情緒分析
-                    logger.info(f"情緒:{sentiment_label}")
-                    hotkey_trigger(sentiment_label) #觸發快速鍵
-
-                #同步顯示文字
-                if YouTube_chat_room_open:
-                    response = requests.get(f"http://127.0.0.1:3840/text_to_display_add?data={voice[1]}")
-                    logger.info(f"網頁即時文字狀態:{response.content}")
-
-                audio_processing = remove_start_silence(voice[0]) #移除頭空白音訊
-                await play_audio(audio_processing, audio_volume)
-        finally:
-            try:
-                hotkey_trigger(config.default.sentiment) #觸發默認情緒的快速鍵
-                logger.info("已觸發默認情緒的快速鍵")
-                VTube_Studio_API.close()
-                logger.info("已釋放VTube_Studio_API資源")
-            except:
-                logger.info("未有需要釋放的VTube_Studio_API資源")
-    
-        
-                
+            audio_processing = remove_start_silence(voice[0]) #移除頭空白音訊
+            await play_audio(audio_processing, audio_volume)
 
     #語音生成
     async def speech_generation(text_queue, voice_queue):
@@ -229,9 +188,47 @@ async def bot(
     merge_system_prompts = sys_prompt + promptTemplate(model_name, sys_user_prompt, "OK。\n") #系統提示詞_答案
     prompt = merge_system_prompts + history_process(history, model_name, history_num, config.default.history.history_mode, tokenizer) + promptTemplate(model_name,instruction) #合併成完整提示
 
-    #文本生成
-    async for result in text_generation(prompt):
-        yield result
+
+    def hotkey_trigger(sentiment_label): #觸發快速鍵
+        hotkey_name = config.VTube_Studio.sentiment_analysis[sentiment_label] #根據設定檔轉換成對應快速鍵名稱
+        hotkeyID = hotkey_correspondence_table[hotkey_name] #根據快速鍵名稱轉換成快速鍵ID
+        _ = websocket_send( #觸發對應快速鍵
+            VTube_Studio_API,
+            HotkeyTriggerRequest(hotkeyID)
+        )
+
+        logger.info(f"觸發VTube Studio快速鍵:{hotkey_name}")
+
+    try:
+        VTube_Studio_API_connection_status = False #VTube_Studio_API連接狀態
+        if "情緒分析" in checkable_settings: #是否啟用情緒分析
+            VTube_Studio_API = connect(config.VTube_Studio.VTube_Studio_API_URL) #連接VTube_Studio_API
+            VTube_Studio_API_connection_status = Connect_to_VTube_Studio_API( #嘗試與VTube_Studio_API握手
+                VTube_Studio_API, 
+                config.VTube_Studio.pluginName, 
+                config.VTube_Studio.pluginDeveloper
+            )
+
+            if VTube_Studio_API_connection_status: #握手成功
+                hotkeyID_list = websocket_send( #取得快速鍵列表
+                    VTube_Studio_API, 
+                    HotkeysInCurrentModelRequest()
+                )
+                hotkey_correspondence_table = hotkeyID_list_processing(hotkeyID_list) #整理快速鍵列表
+
+        #文本生成
+        async for result in text_generation(prompt):
+            yield result
+    finally:
+        try:
+            hotkey_trigger(config.default.sentiment) #觸發默認情緒的快速鍵
+            logger.info("已觸發默認情緒的快速鍵")
+        finally:
+            try:
+                VTube_Studio_API.close()
+                logger.info("已釋放VTube_Studio_API資源")
+            except:
+                logger.info("未有需要釋放的VTube_Studio_API資源")
 
 #連接YouTube聊天室
 async def YouTube_chat_room(

@@ -1,5 +1,6 @@
 import re
 from typing import Literal
+from collections import Counter
 
 from config import config
 
@@ -162,3 +163,26 @@ def language_classification(content: str) -> list[dict[str, str]]:
     language_list[0]["content"] = first_character + language_list[0]["content"] #加上一開始的符號
 
     return language_list
+
+#提取中文字
+def extract_chinese_characters(content: str) -> list[str]:
+    text = ""
+    text_list = []
+    for char in content:
+        if re.search(r"[\u4e00-\u9fff]", char):
+            text += char
+        else:
+            text_list.append(text)
+            text = ""
+    
+    if text != "":
+        text_list.append(text)
+    
+    text_list_clean = [clean for clean in text_list if clean != ""] #過濾空白字串
+    return text_list_clean
+
+#列表出現最多的值
+def most_common(text_list: list[str], num: int = 1):
+    text_list_counts = Counter(text_list).most_common(num)
+
+    return [text_list_counts[i][0] for i in range(num) if i < len(text_list_counts)]
