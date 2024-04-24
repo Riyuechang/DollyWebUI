@@ -1,0 +1,13 @@
+loguru
+opencc
+requests
+autoawq
+accelerate
+transformers
+transformers[sentencepiece]
+gradio
+pygame
+pytchat
+flask
+flask_socketio
+websockets

@@ -54,7 +54,7 @@ Bert_VITS2_server = subprocess.Popen(["runtime/bin/python", "hiyoriUI.py"], cwd=
 while True: #等待啟動
     output = Bert_VITS2_server.stdout.readline().decode()
 
-    if output.find("INFO     | hiyoriUI.py:730 | api文档地址 http://127.0.0.1:5000/docs") != -1: #檢測是否開啟完畢
+    if output.find("api文档地址 http://127.0.0.1:5000/docs") != -1: #檢測是否開啟完畢
         time.sleep(1)
 
         #預載入模型
@@ -145,9 +145,11 @@ async def bot(
         text_task = asyncio.create_task(speech_generation(text_queue, voice_queue)) #啟用異步函數
         voice_task = asyncio.create_task(voice_playback(voice_queue)) #啟用異步函數
 
-        inputs = tokenizer(prompt, return_tensors="pt") #用分詞器處理提示
-        input_ids=inputs["input_ids"].cuda() #推理設備為CUDA
-        generation_kwargs = dict(input_ids=input_ids, streamer=streamer,
+        inputs = tokenizer(prompt, return_tensors="pt").to("cuda") #用分詞器處理提示
+        generation_kwargs = dict(inputs, 
+                                streamer=streamer,
+                                eos_token_id=2, 
+                                pad_token_id=2,
                                 max_length=4096,
                                 do_sample=True,
                                 temperature=1
@@ -202,12 +204,15 @@ async def bot(
     try:
         VTube_Studio_API_connection_status = False #VTube_Studio_API連接狀態
         if "情緒分析" in checkable_settings: #是否啟用情緒分析
-            VTube_Studio_API = connect(config.VTube_Studio.VTube_Studio_API_URL) #連接VTube_Studio_API
-            VTube_Studio_API_connection_status = Connect_to_VTube_Studio_API( #嘗試與VTube_Studio_API握手
-                VTube_Studio_API, 
-                config.VTube_Studio.pluginName, 
-                config.VTube_Studio.pluginDeveloper
-            )
+            try:
+                VTube_Studio_API = connect(config.VTube_Studio.VTube_Studio_API_URL) #連接VTube_Studio_API
+                VTube_Studio_API_connection_status = Connect_to_VTube_Studio_API( #嘗試與VTube_Studio_API握手
+                    VTube_Studio_API, 
+                    config.VTube_Studio.pluginName, 
+                    config.VTube_Studio.pluginDeveloper
+                )
+            except:
+                logger.info("無法連接VTube Studio API")
 
             if VTube_Studio_API_connection_status: #握手成功
                 hotkeyID_list = websocket_send( #取得快速鍵列表
@@ -223,6 +228,8 @@ async def bot(
         try:
             hotkey_trigger(config.default.sentiment) #觸發默認情緒的快速鍵
             logger.info("已觸發默認情緒的快速鍵")
+        except:
+            logger.info("未有需要觸發的快速鍵")
         finally:
             try:
                 VTube_Studio_API.close()
