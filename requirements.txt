@@ -3,11 +3,12 @@ opencc
 requests
 autoawq
 accelerate
-transformers
+transformers==4.38.2
 transformers[sentencepiece]
-gradio
+gradio==4.19.2
 pygame
 pytchat
 flask
 flask_socketio
+eventlet
 websockets
