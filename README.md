@@ -20,5 +20,6 @@ RVC1006:https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/RVC1006N
 **Other**  
 TTSmaker:https://ttsmaker.com/zh-hk  
 
-**Notice**  
-PyTorch version:2.2.1  
+**Need**  
+PyTorch:2.2.1  
+FFmpeg
