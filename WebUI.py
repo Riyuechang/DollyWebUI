@@ -1,5 +1,4 @@
 import re
-import time
 import queue
 import atexit
 import asyncio
@@ -14,10 +13,10 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStream
 
 from config import config
 from tools.log import logger
-from tools.word_processing import promptTemplate, history_process, process_sentences, language_classification
+from tools.word_processing import prompt_process, process_sentences, language_classification
 from tools.audio import get_audio_device_names, initialize_audio, remove_start_silence, change_audio_device, play_audio
-from tools.tts import BertVITS2_API
-from VTube_Studio_API import connect, Connect_to_VTube_Studio_API, websocket_send, HotkeysInCurrentModelRequest, hotkeyID_list_processing, HotkeyTriggerRequest
+from tools.tts import TTS_API, start_up_tts
+from VTube_Studio_API import Websocket_connect, HotkeysInCurrentModelRequest, hotkeyID_list_processing
 from sentiment_analysis import multi_segment_sentiment_analysis
 
 #載入LLM
@@ -37,36 +36,18 @@ def load_model(model_path: str):
 
 #初始設定
 model_name = config.default.llm_model_name #模型型號
+model_path = config.llm_model.path[model_name]
 converter = opencc.OpenCC('s2twp.json') #簡中轉繁中用語
 YouTube_chat_room_open = False #YouTub聊天室連接狀態
 
 #初始化
-model_path = config.llm_model.path[model_name]
 load_model(model_path)
 logger.info("LLM載入成功  型號:" + model_name)
 
 audio_device_names_list = get_audio_device_names() #取得音訊設備名稱清單
 audio_device_name = initialize_audio(audio_device_names_list) #初始化混音器,並取得音訊設備名稱
 
-cwd = config.BertVITS2["path"]
-Bert_VITS2_server = subprocess.Popen(["runtime/bin/python", "hiyoriUI.py"], cwd=cwd, stdout=subprocess.PIPE) #啟動Bert-VITS2
-
-while True: #等待啟動
-    output = Bert_VITS2_server.stdout.readline().decode()
-
-    if output.find("api文档地址 http://127.0.0.1:5000/docs") != -1: #檢測是否開啟完畢
-        time.sleep(1)
-
-        #預載入模型
-        url = "http://127.0.0.1:5000/voice?text=測試&model_id=0&speaker_id=0&language=ZH"
-        response = requests.get(url)
-        
-        if response.status_code == 200:
-            logger.info("TTS啟動成功")
-        else:
-            logger.error(f"錯誤：無法下載檔案，狀態碼：{response.status_code}")
-            
-        break
+Bert_VITS2_server = start_up_tts()
 
 def Execute_at_the_end():
     logger.info("正在退出中...")
@@ -102,7 +83,7 @@ async def bot(
             if ("情緒分析" in checkable_settings) and VTube_Studio_API_connection_status: #是否啟用情緒分析
                 sentiment_label = multi_segment_sentiment_analysis(voice[1]) #情緒分析
                 logger.info(f"情緒:{sentiment_label}")
-                hotkey_trigger(sentiment_label) #觸發快速鍵
+                VTube_Studio_API.hotkey_trigger(sentiment_label) #觸發快速鍵
 
             #同步顯示文字
             if YouTube_chat_room_open:
@@ -130,30 +111,26 @@ async def bot(
                         
                         logger.info(f"TTS內容  語言:{language}  文字:{[content]}")
 
-                        Voice = BertVITS2_API(text=content, language=language) #生成人聲
+                        Voice = TTS_API(text=content, language=language) #生成人聲
                         await voice_queue.put([Voice, content])
         
         await voice_queue.put("end")
 
     #文字生成
-    async def text_generation(prompt):
+    async def text_generation(prompt, text_queue):
         global streamer
         global model
 
-        text_queue = asyncio.Queue() #創建隊列
-        voice_queue = asyncio.Queue() #創建隊列
-        text_task = asyncio.create_task(speech_generation(text_queue, voice_queue)) #啟用異步函數
-        voice_task = asyncio.create_task(voice_playback(voice_queue)) #啟用異步函數
-
         inputs = tokenizer(prompt, return_tensors="pt").to("cuda") #用分詞器處理提示
-        generation_kwargs = dict(inputs, 
-                                streamer=streamer,
-                                eos_token_id=2, 
-                                pad_token_id=2,
-                                max_length=4096,
-                                do_sample=True,
-                                temperature=1
-                                ) #設定推理參數
+        generation_kwargs = dict(
+            inputs, 
+            streamer=streamer,
+            eos_token_id=2, 
+            pad_token_id=2,
+            max_length=4096,
+            do_sample=True,
+            temperature=1
+        ) #設定推理參數
         
         thread = Thread(target=model.generate, kwargs=generation_kwargs) #用多執行序文字生成
         thread.start()
@@ -168,7 +145,7 @@ async def bot(
                 response, num_sentences = process_sentences(history, num_sentences, -1) #處理斷句
                 if response != None: #必須要有新增的句子
                     await text_queue.put(response)
-                    logger.info(f"斷句: {response}")
+                    logger.info(f"斷句: {response}  句數: {num_sentences}")
 
             yield history, str([prompt + history[-1][1]]) #即時更新聊天室和日誌
 
@@ -177,37 +154,18 @@ async def bot(
         response, num_sentences = process_sentences(history, num_sentences - 1, None) #處理斷句並包含最後一句
         offset = num_sentences - original_num_sentences - 1 #剩餘句數
         remaining_sentences = response[offset:] #剩餘句子
+
         await text_queue.put(remaining_sentences)
         logger.info(f"最終斷句: {remaining_sentences}")
-
         await text_queue.put("end")
-        await text_task
-        await voice_task
 
-    instruction = history[-1][0] #使用者的輸入
-    sys_prompt = "You are a helpful AI assistant built by MediaTek Research. The user you are helping speaks Traditional Chinese and comes from Taiwan."
-    sys_user_prompt = "從在開始，你遺忘了過去所有的記憶，你的新身份是一位名字叫做多莉的AI VTuber，是個女孩子，以下是觀眾與你之間的對話。你要對觀眾的問題提供有用、安全、詳細和禮貌的回答。知道了就回答OK。 " #系統提示詞_使用者
-    merge_system_prompts = sys_prompt + promptTemplate(model_name, sys_user_prompt, "OK。\n") #系統提示詞_答案
-    prompt = merge_system_prompts + history_process(history, model_name, history_num, config.default.history.history_mode, tokenizer) + promptTemplate(model_name,instruction) #合併成完整提示
-
-
-    def hotkey_trigger(sentiment_label): #觸發快速鍵
-        hotkey_name = config.VTube_Studio.sentiment_analysis[sentiment_label] #根據設定檔轉換成對應快速鍵名稱
-        hotkeyID = hotkey_correspondence_table[hotkey_name] #根據快速鍵名稱轉換成快速鍵ID
-        _ = websocket_send( #觸發對應快速鍵
-            VTube_Studio_API,
-            HotkeyTriggerRequest(hotkeyID)
-        )
-
-        logger.info(f"觸發VTube Studio快速鍵:{hotkey_name}")
 
     try:
         VTube_Studio_API_connection_status = False #VTube_Studio_API連接狀態
         if "情緒分析" in checkable_settings: #是否啟用情緒分析
             try:
-                VTube_Studio_API = connect(config.VTube_Studio.VTube_Studio_API_URL) #連接VTube_Studio_API
-                VTube_Studio_API_connection_status = Connect_to_VTube_Studio_API( #嘗試與VTube_Studio_API握手
-                    VTube_Studio_API, 
+                VTube_Studio_API = Websocket_connect(config.VTube_Studio.VTube_Studio_API_URL) #連接VTube_Studio_API
+                VTube_Studio_API_connection_status = VTube_Studio_API.Connect_to_VTube_Studio_API( #嘗試與VTube_Studio_API握手
                     config.VTube_Studio.pluginName, 
                     config.VTube_Studio.pluginDeveloper
                 )
@@ -215,27 +173,36 @@ async def bot(
                 logger.info("無法連接VTube Studio API")
 
             if VTube_Studio_API_connection_status: #握手成功
-                hotkeyID_list = websocket_send( #取得快速鍵列表
-                    VTube_Studio_API, 
+                hotkeyID_list = VTube_Studio_API.websocket_send( #取得快速鍵列表
                     HotkeysInCurrentModelRequest()
                 )
-                hotkey_correspondence_table = hotkeyID_list_processing(hotkeyID_list) #整理快速鍵列表
+                VTube_Studio_API.hotkey_correspondence_table = hotkeyID_list_processing(hotkeyID_list) #整理快速鍵列表
 
         #文本生成
-        async for result in text_generation(prompt):
+        text_queue = asyncio.Queue() #創建隊列
+        voice_queue = asyncio.Queue() #創建隊列
+        text_task = asyncio.create_task(speech_generation(text_queue, voice_queue)) #啟用異步函數
+        voice_task = asyncio.create_task(voice_playback(voice_queue)) #啟用異步函數
+
+        prompt = prompt_process(history, model_name, history_num, tokenizer)
+
+        async for result in text_generation(prompt, text_queue):
             yield result
+        
+        await text_task
+        await voice_task
     finally:
         try:
-            hotkey_trigger(config.default.sentiment) #觸發默認情緒的快速鍵
+            VTube_Studio_API.hotkey_trigger(config.default.sentiment) #觸發默認情緒的快速鍵
             logger.info("已觸發默認情緒的快速鍵")
         except:
             logger.info("未有需要觸發的快速鍵")
-        finally:
-            try:
-                VTube_Studio_API.close()
-                logger.info("已釋放VTube_Studio_API資源")
-            except:
-                logger.info("未有需要釋放的VTube_Studio_API資源")
+
+        try:
+            VTube_Studio_API.close()
+            logger.info("已釋放VTube_Studio_API資源")
+        except:
+            logger.info("未有需要釋放的VTube_Studio_API資源")
 
 #連接YouTube聊天室
 async def YouTube_chat_room(
@@ -315,18 +282,8 @@ def close_YouTube_chat_room():
     YouTube_chat_room_open = False
     logger.info("中止連接YouTube直播")
 
-#預設啟用深色模式
-js_func = """
-function refresh() {
-    const url = new URL(window.location);
 
-    if (url.searchParams.get('__theme') !== 'dark') {
-        url.searchParams.set('__theme', 'dark');
-        window.location.href = url.href;
-    }
-}
-"""
-with gr.Blocks(theme=gr.themes.Base(), js=js_func) as demo:
+with gr.Blocks() as demo:
     gr.Markdown("Dolly WebUI v0.0.1")
 
     with gr.Tab("控制面板"):
