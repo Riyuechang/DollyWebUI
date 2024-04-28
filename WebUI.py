@@ -1,62 +1,22 @@
-import re
 import queue
-import atexit
 import asyncio
 import subprocess
 from ast import literal_eval
 from threading import Thread
 
-import opencc
 import requests
 import gradio as gr
-from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
 from config import config
 from tools.log import logger
-from tools.word_processing import prompt_process, process_sentences, language_classification
-from tools.audio import get_audio_device_names, initialize_audio, remove_start_silence, change_audio_device, play_audio
-from tools.tts import TTS_API, start_up_tts
+from tools.word_processing import prompt_process
+from tools.audio import get_audio_device_names, initialize_audio, change_audio_device
 from VTube_Studio_API import Websocket_connect, HotkeysInCurrentModelRequest, hotkeyID_list_processing
-from sentiment_analysis import multi_segment_sentiment_analysis
-
-#載入LLM
-def load_model(model_path: str):
-    global tokenizer
-    global model
-    global streamer
-
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
-    model = AutoModelForCausalLM.from_pretrained(
-    model_path,
-    #attn_implementation="flash_attention_2",
-    # safetensors=True,
-    device_map="cuda:0"
-    )   
-    streamer = TextIteratorStreamer(tokenizer,True)
-
-#初始設定
-model_name = config.default.llm_model_name #模型型號
-model_path = config.llm_model.path[model_name]
-converter = opencc.OpenCC('s2twp.json') #簡中轉繁中用語
-YouTube_chat_room_open = False #YouTub聊天室連接狀態
+from core import chat_core
 
 #初始化
-load_model(model_path)
-logger.info("LLM載入成功  型號:" + model_name)
-
 audio_device_names_list = get_audio_device_names() #取得音訊設備名稱清單
 audio_device_name = initialize_audio(audio_device_names_list) #初始化混音器,並取得音訊設備名稱
-
-Bert_VITS2_server = start_up_tts()
-
-def Execute_at_the_end():
-    logger.info("正在退出中...")
-
-    Bert_VITS2_server.terminate() #關閉BertVITS2的API
-
-    logger.info("退出完成!")
-
-atexit.register(Execute_at_the_end) #註冊關閉事件
 
 #使用者輸入訊息,更新聊天室
 def user(
@@ -72,121 +32,54 @@ async def bot(
     history_num: int,
     checkable_settings: list[str]
 ):
-    #語音播放
-    async def voice_playback(voice_queue):
-        while True:
-            voice = await voice_queue.get()
-
-            if voice == "end":
-                break
-
-            if ("情緒分析" in checkable_settings) and VTube_Studio_API_connection_status: #是否啟用情緒分析
-                sentiment_label = multi_segment_sentiment_analysis(voice[1]) #情緒分析
-                logger.info(f"情緒:{sentiment_label}")
-                VTube_Studio_API.hotkey_trigger(sentiment_label) #觸發快速鍵
-
-            #同步顯示文字
-            if YouTube_chat_room_open:
-                response = requests.get(f"http://127.0.0.1:3840/text_to_display_add?data={voice[1]}")
-                logger.info(f"網頁即時文字狀態:{response.content}")
-
-            audio_processing = remove_start_silence(voice[0]) #移除頭空白音訊
-            await play_audio(audio_processing, audio_volume)
-
-    #語音生成
-    async def speech_generation(text_queue, voice_queue):
-        while True:
-            text_list = await text_queue.get()
-
-            if text_list == "end":
-                break
-            
-            for text in text_list:
-                if re.search(r"[a-zA-Z\u4e00-\u9fff]", text): #檢測是否有中文或英文字母
-                    text_classification = language_classification(text) #根據語言分類
-
-                    for text_dict in text_classification: #根據語言生成TTS
-                        content = text_dict["content"]
-                        language = text_dict["language"]
-                        
-                        logger.info(f"TTS內容  語言:{language}  文字:{[content]}")
-
-                        Voice = TTS_API(text=content, language=language) #生成人聲
-                        await voice_queue.put([Voice, content])
-        
-        await voice_queue.put("end")
-
-    #文字生成
-    async def text_generation(prompt, text_queue):
-        global streamer
-        global model
-
-        inputs = tokenizer(prompt, return_tensors="pt").to("cuda") #用分詞器處理提示
-        generation_kwargs = dict(
-            inputs, 
-            streamer=streamer,
-            eos_token_id=2, 
-            pad_token_id=2,
-            max_length=4096,
-            do_sample=True,
-            temperature=1
-        ) #設定推理參數
-        
-        thread = Thread(target=model.generate, kwargs=generation_kwargs) #用多執行序文字生成
-        thread.start()
-
-        #流式輸出
-        num_sentences = 1 #累計句數
-        for new_text in streamer:
-            history[-1][1] += new_text.strip(tokenizer.eos_token) #過濾「結束」Token
-            history[-1][1] = converter.convert(history[-1][1]) #簡轉繁中用語
-
-            if re.search(r"[.。?？!！\n]", new_text):
-                response, num_sentences = process_sentences(history, num_sentences, -1) #處理斷句
-                if response != None: #必須要有新增的句子
-                    await text_queue.put(response)
-                    logger.info(f"斷句: {response}  句數: {num_sentences}")
-
-            yield history, str([prompt + history[-1][1]]) #即時更新聊天室和日誌
-
-        #處理最後一句
-        original_num_sentences = num_sentences #原來句數
-        response, num_sentences = process_sentences(history, num_sentences - 1, None) #處理斷句並包含最後一句
-        offset = num_sentences - original_num_sentences - 1 #剩餘句數
-        remaining_sentences = response[offset:] #剩餘句子
-
-        await text_queue.put(remaining_sentences)
-        logger.info(f"最終斷句: {remaining_sentences}")
-        await text_queue.put("end")
-
-
     try:
-        VTube_Studio_API_connection_status = False #VTube_Studio_API連接狀態
+        chat_core.VTube_Studio_API_connection_status = False #VTube_Studio_API連接狀態
         if "情緒分析" in checkable_settings: #是否啟用情緒分析
             try:
                 VTube_Studio_API = Websocket_connect(config.VTube_Studio.VTube_Studio_API_URL) #連接VTube_Studio_API
-                VTube_Studio_API_connection_status = VTube_Studio_API.Connect_to_VTube_Studio_API( #嘗試與VTube_Studio_API握手
+                chat_core.VTube_Studio_API_connection_status = VTube_Studio_API.Connect_to_VTube_Studio_API( #嘗試與VTube_Studio_API握手
                     config.VTube_Studio.pluginName, 
                     config.VTube_Studio.pluginDeveloper
                 )
             except:
                 logger.info("無法連接VTube Studio API")
 
-            if VTube_Studio_API_connection_status: #握手成功
+            if chat_core.VTube_Studio_API_connection_status: #握手成功
                 hotkeyID_list = VTube_Studio_API.websocket_send( #取得快速鍵列表
                     HotkeysInCurrentModelRequest()
                 )
                 VTube_Studio_API.hotkey_correspondence_table = hotkeyID_list_processing(hotkeyID_list) #整理快速鍵列表
 
-        #文本生成
         text_queue = asyncio.Queue() #創建隊列
         voice_queue = asyncio.Queue() #創建隊列
-        text_task = asyncio.create_task(speech_generation(text_queue, voice_queue)) #啟用異步函數
-        voice_task = asyncio.create_task(voice_playback(voice_queue)) #啟用異步函數
+        text_task = asyncio.create_task(
+            chat_core.speech_generation( #啟用異步函數
+                text_queue, 
+                voice_queue
+            )
+        )
+        voice_task = asyncio.create_task( #啟用異步函數
+            chat_core.voice_playback(
+                voice_queue, 
+                audio_volume,
+                checkable_settings,
+                VTube_Studio_API if chat_core.VTube_Studio_API_connection_status else None
+            )
+        )
 
-        prompt = prompt_process(history, model_name, history_num, tokenizer)
+        prompt = prompt_process(
+            history, 
+            chat_core.model_name, 
+            history_num, 
+            chat_core.tokenizer
+        )
 
-        async for result in text_generation(prompt, text_queue):
+        #文本生成
+        async for result in chat_core.text_generation(
+            text_queue, 
+            prompt,
+            history
+        ):
             yield result
         
         await text_task
@@ -212,8 +105,7 @@ async def YouTube_chat_room(
     history_num: int,
     checkable_settings: list[str]
 ):
-    global YouTube_chat_room_open
-    YouTube_chat_room_open = True #設定連接狀態
+    chat_core.YouTube_chat_room_open = True #設定連接狀態
     message = ""
     log = ""
 
@@ -230,7 +122,7 @@ async def YouTube_chat_room(
             web_real_time_subtitles = subprocess.Popen(command, stdout=subprocess.PIPE) #呼叫web_real_time_subtitles/app.py
 
             #連接狀態為True時,處理聊天室訊息
-            while YouTube_chat_room_open:
+            while chat_core.YouTube_chat_room_open:
                 #獲取聊天室訊息
                 def obtain_chat_message(q):
                     response = YouTube_chat_processor.stdout.readline().decode() #等待Youtube_Chat.py回傳訊息
@@ -240,10 +132,10 @@ async def YouTube_chat_room(
                 thread.start()
 
                 #等待新訊息並且連接狀態為True
-                while thread.is_alive() and YouTube_chat_room_open:
+                while thread.is_alive() and chat_core.YouTube_chat_room_open:
                     await asyncio.sleep(0.1)
 
-                if YouTube_chat_room_open: #連接狀態為True時,處理訊息
+                if chat_core.YouTube_chat_room_open: #連接狀態為True時,處理訊息
                     response_str = response_queue.get() #取得回覆隊列內容
                     logger.info(response_str)
                     YouTube_chat_information = literal_eval(response_str) #從字串換成字典
@@ -274,12 +166,11 @@ async def YouTube_chat_room(
         log += "\n\nYouTube帳號代碼不可空白!!"
         yield message, history, log
     
-    YouTube_chat_room_open = False #設定連接狀態
+    chat_core.YouTube_chat_room_open = False #設定連接狀態
 
 #關閉連接YouTube聊天室
 def close_YouTube_chat_room():
-    global YouTube_chat_room_open
-    YouTube_chat_room_open = False
+    chat_core.YouTube_chat_room_open = False
     logger.info("中止連接YouTube直播")
 
 

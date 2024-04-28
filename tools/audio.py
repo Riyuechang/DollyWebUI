@@ -1,5 +1,5 @@
-import io
 import asyncio
+from io import BytesIO
 
 import pygame
 import pygame._sdl2.audio as sdl2_audio
@@ -45,7 +45,7 @@ async def play_audio(
     voice: bytes, 
     audio_volume: int
 ):
-    sound = pygame.mixer.Sound(io.BytesIO(voice)) #載入音訊
+    sound = pygame.mixer.Sound(BytesIO(voice)) #載入音訊
     sound.set_volume(audio_volume / 100) #調整音量
     sound.play()
 
@@ -54,7 +54,7 @@ async def play_audio(
 
 #移除頭尾空白音訊
 def remove_start_and_end_silence(audio: bytes) -> bytes:
-    audio_pydub = AudioSegment.from_wav(io.BytesIO(audio)) #轉換成pydhb可以讀的格式
+    audio_pydub = AudioSegment.from_wav(BytesIO(audio)) #轉換成pydhb可以讀的格式
     start_silence = detect_leading_silence(audio_pydub) #計算頭空白音訊範圍
     end_silence = detect_leading_silence(audio_pydub.reverse()) #計算尾空白音訊範圍
     audio_duration = len(audio_pydub) #音訊總長度
@@ -66,7 +66,7 @@ def remove_start_and_end_silence(audio: bytes) -> bytes:
 
 #移除頭空白音訊
 def remove_start_silence(audio: bytes) -> bytes:
-    audio_pydub = AudioSegment.from_wav(io.BytesIO(audio))
+    audio_pydub = AudioSegment.from_wav(BytesIO(audio))
     start_silence = detect_leading_silence(audio_pydub)
     after_trim_audio = audio_pydub[start_silence:]
     audio_wav = after_trim_audio.export(None, format="wav")

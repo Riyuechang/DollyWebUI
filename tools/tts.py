@@ -1,4 +1,5 @@
 import time
+import atexit
 import subprocess
 from urllib.parse import quote
 
@@ -8,30 +9,36 @@ from tools.log import logger
 from config import config
 
 #啟動TTS
-def start_up_tts():
-    cwd = config.BertVITS2.path
-    venv = config.BertVITS2.venv
-    api_file_name = config.BertVITS2.api_file_name
-    command = [f"{venv}/bin/python", f"{api_file_name}.py"]
-    Bert_VITS2_server = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE) #啟動Bert-VITS2
+cwd = config.BertVITS2.path
+venv = config.BertVITS2.venv
+api_file_name = config.BertVITS2.api_file_name
+command = [f"{venv}/bin/python", f"{api_file_name}.py"]
+Bert_VITS2_server = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE) #啟動Bert-VITS2
 
-    while True: #等待啟動
-        output = Bert_VITS2_server.stdout.readline().decode()
+while True: #等待啟動
+    output = Bert_VITS2_server.stdout.readline().decode()
 
-        if output.find("api文档地址 http://127.0.0.1:5000/docs") != -1: #檢測是否開啟完畢
-            time.sleep(1)
+    if output.find("api文档地址 http://127.0.0.1:5000/docs") != -1: #檢測是否開啟完畢
+        time.sleep(1)
 
-            #預載入模型
-            url = "http://127.0.0.1:5000/voice?text=測試&model_id=0&speaker_id=0&language=ZH"
-            response = requests.get(url)
+        #預載入模型
+        url = "http://127.0.0.1:5000/voice?text=測試&model_id=0&speaker_id=0&language=ZH"
+        response = requests.get(url)
+        
+        if response.status_code == 200:
+            logger.info("TTS啟動成功")
+        else:
+            logger.error(f"錯誤：無法下載檔案，狀態碼：{response.status_code}")
             
-            if response.status_code == 200:
-                logger.info("TTS啟動成功")
-                return Bert_VITS2_server
-            else:
-                logger.error(f"錯誤：無法下載檔案，狀態碼：{response.status_code}")
-                
-            break
+        break
+
+@atexit.register #註冊關閉事件
+def Execute_at_the_end():
+    logger.info("正在退出中...")
+
+    Bert_VITS2_server.terminate() #關閉BertVITS2的API
+
+    logger.info("退出完成!")
 
 #TTS API
 def TTS_API(
