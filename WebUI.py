@@ -9,6 +9,7 @@ import gradio as gr
 
 from config import config
 from tools.log import logger
+from tools.tts import tts_generation
 from tools.word_processing import prompt_process
 from tools.audio import get_audio_device_names, initialize_audio, change_audio_device
 from VTube_Studio_API import Websocket_connect, HotkeysInCurrentModelRequest, hotkeyID_list_processing
@@ -173,6 +174,18 @@ def close_YouTube_chat_room():
     chat_core.YouTube_chat_room_open = False
     logger.info("中止連接YouTube直播")
 
+#TTS處理
+def tts_processing(
+    text: str, 
+    audio
+) -> bytes | None:
+    Voice_bytes = tts_generation(text)
+
+    if Voice_bytes is None:
+        return audio
+    else:
+        return Voice_bytes
+
 
 with gr.Blocks() as demo:
     gr.Markdown("Dolly WebUI v0.0.1")
@@ -192,40 +205,47 @@ with gr.Blocks() as demo:
                 log = gr.Textbox(label="日誌")
 
             with gr.Column(scale=1, min_width=0):
-                youtube_channel_id = gr.Textbox(label="YouTube帳號代碼", value=config.default.YouTubeChannelID)
-
                 with gr.Row():
-                    with gr.Column(min_width=0):
-                        connect_chat = gr.Button("連接YouTube聊天室", variant="primary", scale=1)
+                    audio_device_dropdown = gr.Dropdown(
+                        ["預設"] + audio_device_names_list, 
+                        label="音訊裝置", 
+                        value=audio_device_name,
+                        filterable=False
+                    )
+                    audio_volume_slider = gr.Slider(
+                        label="音量", 
+                        value=config.default.audio.audio_volume, 
+                        minimum=0, 
+                        maximum=100, 
+                        step=1
+                    )
+                    history_num_slider = gr.Slider(
+                        label=f"上下文數量  模式:{config.default.history.history_mode}", 
+                        value=config.default.history.history_num, 
+                        minimum=1 if config.default.history.history_mode == "rounds" else 50, 
+                        maximum=config.default.history.history_num_max, 
+                        step=1 if config.default.history.history_mode == "rounds" else 50
+                    )
+                    checkable_settings_checkboxgroup = gr.CheckboxGroup(
+                        ["情緒分析"], 
+                        label="可選項",
+                        value=config.default.checkable_settings
+                    )
 
-                    with gr.Column(min_width=0):
-                        stop_connect_chat = gr.Button("中止連接", variant="primary", scale=1)
-                
-                checkable_settings_checkboxgroup = gr.CheckboxGroup(
-                    ["情緒分析"], 
-                    label="可選項",
-                    value=config.default.checkable_settings
-                )
-                audio_device_dropdown = gr.Dropdown(
-                    ["預設"] + audio_device_names_list, 
-                    label="音訊裝置", 
-                    value=audio_device_name,
-                    filterable=False
-                )
-                audio_volume_slider = gr.Slider(
-                    label="音量", 
-                    value=config.default.audio.audio_volume, 
-                    minimum=0, 
-                    maximum=100, 
-                    step=1
-                )
-                history_num_slider = gr.Slider(
-                    label=f"上下文數量  模式:{config.default.history.history_mode}", 
-                    value=config.default.history.history_num, 
-                    minimum=1 if config.default.history.history_mode == "rounds" else 50, 
-                    maximum=config.default.history.history_num_max, 
-                    step=1 if config.default.history.history_mode == "rounds" else 50
-                )
+                with gr.Row(variant="panel"):
+                    youtube_channel_id = gr.Textbox(label="YouTube帳號代碼", value=config.default.YouTubeChannelID)
+
+                    with gr.Row():
+                        with gr.Column(min_width=0):
+                            connect_chat = gr.Button("連接YouTube聊天室", variant="primary", scale=1)
+
+                        with gr.Column(min_width=0):
+                            stop_connect_chat = gr.Button("中止連接", variant="primary", scale=1)
+
+                with gr.Row(variant="panel"):
+                    TTS_textbox = gr.Textbox(label="TTS")
+                    tts_generation_button = gr.Button("生成", variant="primary")
+                    voice_audio = gr.Audio(label="聲音", interactive=False)
 
     with gr.Tab("設定"):
         model_name_Radio = gr.Radio(
@@ -256,5 +276,6 @@ with gr.Blocks() as demo:
     )
     stop_connect_chat.click(close_YouTube_chat_room) #關閉連接YouTube聊天室
     audio_device_dropdown.change(change_audio_device, audio_device_dropdown) #改變音訊設備
+    tts_generation_button.click(tts_processing, [TTS_textbox,voice_audio], voice_audio)
 
 demo.launch() #啟用WebUI
