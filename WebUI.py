@@ -10,7 +10,7 @@ import gradio as gr
 from config import config
 from tools.log import logger
 from tools.tts import tts_generation
-from tools.word_processing import prompt_process
+from tools.word_processing import prompt_process, sentence_break
 from tools.audio import get_audio_device_names, initialize_audio, change_audio_device
 from VTube_Studio_API import Websocket_connect, HotkeysInCurrentModelRequest, hotkeyID_list_processing
 from core import chat_core
@@ -28,10 +28,11 @@ def user(
 
 #AI回覆,更新聊天室
 async def bot(
-    history: list[list[str | None | tuple]], 
+    question_input: list[list[str | None | tuple]] | str, 
     audio_volume: int, 
-    history_num: int,
-    checkable_settings: list[str]
+    history_num: int | None,
+    checkable_settings: list[str],
+    text_generation_open: bool = True
 ):
     try:
         chat_core.VTube_Studio_API_connection_status = False #VTube_Studio_API連接狀態
@@ -68,20 +69,25 @@ async def bot(
             )
         )
 
-        prompt = prompt_process(
-            history, 
-            chat_core.model_name, 
-            history_num, 
-            chat_core.tokenizer
-        )
+        if text_generation_open:
+            prompt = prompt_process(
+                question_input, 
+                chat_core.model_name, 
+                history_num, 
+                chat_core.tokenizer
+            )
 
-        #文本生成
-        async for result in chat_core.text_generation(
-            text_queue, 
-            prompt,
-            history
-        ):
-            yield result
+            #文本生成
+            async for result in chat_core.text_generation(
+                text_queue, 
+                prompt,
+                question_input
+            ):
+                yield result
+        else:
+            sentence_list = sentence_break(question_input)
+            await text_queue.put(sentence_list)
+            await text_queue.put("end")
         
         await text_task
         await voice_task
@@ -148,7 +154,12 @@ async def YouTube_chat_room(
                     response = requests.get(f"http://127.0.0.1:3840/clear")
                     logger.info(f"網頁即時文字狀態:{response}")
 
-                    async for result in bot(history, audio_volume, history_num, checkable_settings): #文本生成
+                    async for result in bot( #文本生成
+                        history, 
+                        audio_volume, 
+                        history_num, 
+                        checkable_settings
+                    ):
                         history, log = result
                         yield message, history, log
             
@@ -185,6 +196,21 @@ def tts_processing(
         return audio
     else:
         return Voice_bytes
+
+
+async def sync_live2D(
+    text, 
+    audio_volume, 
+    checkable_settings
+):
+    async for _ in bot( #文本生成
+        question_input=text, 
+        audio_volume=audio_volume, 
+        history_num=None, 
+        checkable_settings=checkable_settings,
+        text_generation_open=False
+    ):
+        pass
 
 
 with gr.Blocks() as demo:
@@ -244,7 +270,14 @@ with gr.Blocks() as demo:
 
                 with gr.Row(variant="panel"):
                     TTS_textbox = gr.Textbox(label="TTS")
-                    tts_generation_button = gr.Button("生成", variant="primary")
+
+                    with gr.Row():
+                        with gr.Column(min_width=0):
+                            tts_generation_button = gr.Button("生成", variant="primary")
+
+                        with gr.Column(min_width=0):
+                            sync_live2D_button = gr.Button("同步Live2D", variant="primary")
+                    
                     voice_audio = gr.Audio(label="聲音", interactive=False)
 
     with gr.Tab("設定"):
@@ -277,5 +310,6 @@ with gr.Blocks() as demo:
     stop_connect_chat.click(close_YouTube_chat_room) #關閉連接YouTube聊天室
     audio_device_dropdown.change(change_audio_device, audio_device_dropdown) #改變音訊設備
     tts_generation_button.click(tts_processing, [TTS_textbox,voice_audio], voice_audio)
+    sync_live2D_button.click(sync_live2D, [TTS_textbox,audio_volume_slider,checkable_settings_checkboxgroup])
 
 demo.launch() #啟用WebUI
