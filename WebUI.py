@@ -1,6 +1,7 @@
 import queue
 import asyncio
 import subprocess
+from typing import Literal
 from ast import literal_eval
 from threading import Thread
 
@@ -10,7 +11,7 @@ import gradio as gr
 from config import config
 from tools.log import logger
 from tools.tts import tts_generation
-from tools.word_processing import prompt_process, sentence_break
+from tools.word_processing import prompt_process, sentence_break, processing_timestamps
 from tools.audio import get_audio_device_names, initialize_audio, change_audio_device
 from VTube_Studio_API import Websocket_connect, HotkeysInCurrentModelRequest, hotkeyID_list_processing
 from core import chat_core
@@ -32,7 +33,7 @@ async def bot(
     audio_volume: int, 
     history_num: int | None,
     checkable_settings: list[str],
-    text_generation_open: bool = True
+    mode: Literal["text_generation", "sync_live2D", "timestamp_sync_live2D"] = "text_generation"
 ):
     try:
         chat_core.VTube_Studio_API_connection_status = False #VTube_Studio_API連接狀態
@@ -57,7 +58,8 @@ async def bot(
         text_task = asyncio.create_task(
             chat_core.speech_generation( #啟用異步函數
                 text_queue, 
-                voice_queue
+                voice_queue,
+                mode
             )
         )
         voice_task = asyncio.create_task( #啟用異步函數
@@ -65,29 +67,37 @@ async def bot(
                 voice_queue, 
                 audio_volume,
                 checkable_settings,
-                VTube_Studio_API if chat_core.VTube_Studio_API_connection_status else None
+                VTube_Studio_API if chat_core.VTube_Studio_API_connection_status else None,
+                mode
             )
         )
 
-        if text_generation_open:
-            prompt = prompt_process(
-                question_input, 
-                chat_core.model_name, 
-                history_num, 
-                chat_core.tokenizer
-            )
+        match mode:
+            case "text_generation":
+                prompt = prompt_process(
+                    question_input, 
+                    chat_core.model_name, 
+                    history_num, 
+                    chat_core.tokenizer
+                )
 
-            #文本生成
-            async for result in chat_core.text_generation(
-                text_queue, 
-                prompt,
-                question_input
-            ):
-                yield result
-        else:
-            sentence_list = sentence_break(question_input)
-            await text_queue.put(sentence_list)
-            await text_queue.put("end")
+                #文本生成
+                async for result in chat_core.text_generation(
+                    text_queue, 
+                    prompt,
+                    question_input
+                ):
+                    yield result
+
+            case "sync_live2D":
+                sentence_list = sentence_break(question_input)
+                await text_queue.put(sentence_list)
+                await text_queue.put(None)
+            
+            case "timestamp_sync_live2D":
+                timestamp_text_list = processing_timestamps(question_input)
+                await text_queue.put(timestamp_text_list)
+                await text_queue.put(None)
         
         await text_task
         await voice_task
@@ -199,19 +209,33 @@ def tts_processing(
 
 
 async def sync_live2D(
-    text, 
-    audio_volume, 
-    checkable_settings
+    text: str, 
+    audio_volume: int, 
+    checkable_settings: list[str]
 ):
     async for _ in bot( #文本生成
         question_input=text, 
         audio_volume=audio_volume, 
         history_num=None, 
         checkable_settings=checkable_settings,
-        text_generation_open=False
+        mode="sync_live2D"
     ):
         pass
 
+
+async def timestamp_sync_live2D(
+    text: str, 
+    audio_volume: int, 
+    checkable_settings: list[str]
+):
+    async for _ in bot( #文本生成
+        question_input=text, 
+        audio_volume=audio_volume, 
+        history_num=None, 
+        checkable_settings=checkable_settings,
+        mode="timestamp_sync_live2D"
+    ):
+        pass
 
 with gr.Blocks() as demo:
     gr.Markdown("Dolly WebUI v0.0.1")
@@ -222,7 +246,7 @@ with gr.Blocks() as demo:
                 chatbot = gr.Chatbot(label="聊天室", bubble_full_width=False,)
 
                 with gr.Row():
-                    with gr.Column(scale=6):
+                    with gr.Column(scale=5):
                         message = gr.Textbox(label="訊息")
 
                     with gr.Column(scale=1, min_width=0):
@@ -258,27 +282,30 @@ with gr.Blocks() as demo:
                         value=config.default.checkable_settings
                     )
 
-                with gr.Row(variant="panel"):
-                    youtube_channel_id = gr.Textbox(label="YouTube帳號代碼", value=config.default.YouTubeChannelID)
+            with gr.Column(scale=2, min_width=0):
+                youtube_channel_id = gr.Textbox(label="YouTube帳號代碼", value=config.default.YouTubeChannelID)
 
-                    with gr.Row():
-                        with gr.Column(min_width=0):
-                            connect_chat = gr.Button("連接YouTube聊天室", variant="primary", scale=1)
+                with gr.Row():
+                    with gr.Column(min_width=0):
+                        connect_chat = gr.Button("連接YouTube聊天室", variant="primary", scale=1)
 
-                        with gr.Column(min_width=0):
-                            stop_connect_chat = gr.Button("中止連接", variant="primary", scale=1)
+                    with gr.Column(min_width=0):
+                        stop_connect_chat = gr.Button("中止連接", variant="primary", scale=1)
 
-                with gr.Row(variant="panel"):
-                    TTS_textbox = gr.Textbox(label="TTS")
+                TTS_textarea = gr.TextArea(
+                    label="TTS",
+                    placeholder="使用\"根據時間戳同步Live2D\"功能時\n要在對應文字前加上時間戳\n\n例：\n<3.5>你好\n<5.5>我是XXX\n<7>很高興認識你\n\n時間戳單位為秒"
+                )
 
-                    with gr.Row():
-                        with gr.Column(min_width=0):
-                            tts_generation_button = gr.Button("生成", variant="primary")
+                with gr.Row():
+                    with gr.Column(min_width=0):
+                        tts_generation_button = gr.Button("生成", variant="primary")
 
-                        with gr.Column(min_width=0):
-                            sync_live2D_button = gr.Button("同步Live2D", variant="primary")
-                    
-                    voice_audio = gr.Audio(label="聲音", interactive=False)
+                    with gr.Column(min_width=0):
+                        sync_live2D_button = gr.Button("同步Live2D", variant="primary")
+
+                timestamp_sync_live2D_button = gr.Button("根據時間戳同步Live2D", variant="primary")
+                voice_audio = gr.Audio(label="聲音", interactive=False)
 
     with gr.Tab("設定"):
         model_name_Radio = gr.Radio(
@@ -309,7 +336,8 @@ with gr.Blocks() as demo:
     )
     stop_connect_chat.click(close_YouTube_chat_room) #關閉連接YouTube聊天室
     audio_device_dropdown.change(change_audio_device, audio_device_dropdown) #改變音訊設備
-    tts_generation_button.click(tts_processing, [TTS_textbox,voice_audio], voice_audio)
-    sync_live2D_button.click(sync_live2D, [TTS_textbox,audio_volume_slider,checkable_settings_checkboxgroup])
+    tts_generation_button.click(tts_processing, [TTS_textarea,voice_audio], voice_audio)
+    sync_live2D_button.click(sync_live2D, [TTS_textarea,audio_volume_slider,checkable_settings_checkboxgroup])
+    timestamp_sync_live2D_button.click(timestamp_sync_live2D, [TTS_textarea,audio_volume_slider,checkable_settings_checkboxgroup])
 
 demo.launch() #啟用WebUI

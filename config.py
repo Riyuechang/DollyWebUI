@@ -78,18 +78,20 @@ class VTube_Studio_Config:
         self.sentiment_analysis: list = sentiment_analysis
 
 
-class BertVITS2_Config:
+class TTS_Config:
     def __init__(
         self,
-        config: dict[str, str | int],
+        TTS_type: str,
         path: str,
         venv: str,
-        api_file_name: str
+        api_file_name: str,
+        config: dict[dict[str, str | int]]
     ):
-        self.config: dict[str, str | int] = config
+        self.TTS_type: str = TTS_type
         self.path: str = path
         self.venv: str = venv
         self.api_file_name: str = api_file_name
+        self.config: dict[dict[str, str | int]] = config
 
 
 class Config:
@@ -99,7 +101,7 @@ class Config:
         
         self.default: Default_Config = Default_Config(**config_data["default"])
         self.llm_model: LLM_Model_Config = LLM_Model_Config(**config_data["llm_model"])
-        self.BertVITS2: BertVITS2_Config = BertVITS2_Config(**config_data["BertVITS2"])
+        self.TTS: TTS_Config = TTS_Config(**config_data["TTS"])
         self.VTube_Studio: VTube_Studio_Config = VTube_Studio_Config(**config_data["VTube_Studio"])
 
 

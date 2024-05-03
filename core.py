@@ -1,4 +1,7 @@
 import re
+import time
+import asyncio
+from typing import Literal
 from threading import Thread
 
 import opencc
@@ -42,13 +45,26 @@ class Chat_Core:
         voice_queue, 
         audio_volume: int, 
         checkable_settings: list[str], 
-        VTube_Studio_API: Websocket_connect
+        VTube_Studio_API: Websocket_connect,
+        mode: Literal["text_generation", "sync_live2D", "timestamp_sync_live2D"] = "text_generation"
     ):
+        start_timestamp = time.time()
+        
         while True:
             voice = await voice_queue.get()
 
-            if voice == "end":
+            if voice is None:
                 break
+
+            if mode == "timestamp_sync_live2D" and type(voice) is float:
+                time_difference = (start_timestamp + voice) - time.time()
+
+                if time_difference > 0:
+                    #VTube_Studio_API.hotkey_trigger(config.default.sentiment) #觸發默認情緒的快速鍵
+                    #logger.info("已觸發默認情緒的快速鍵")
+                    await asyncio.sleep(time_difference)
+                
+                voice = await voice_queue.get()
 
             if ("情緒分析" in checkable_settings) and self.VTube_Studio_API_connection_status: #是否啟用情緒分析
                 sentiment_label = multi_segment_sentiment_analysis(voice[1]) #情緒分析
@@ -67,15 +83,25 @@ class Chat_Core:
     async def speech_generation(
         self,
         text_queue, 
-        voice_queue
+        voice_queue,
+        mode: Literal["text_generation", "sync_live2D", "timestamp_sync_live2D"] = "text_generation"
     ):
         while True:
             text_list = await text_queue.get()
 
-            if text_list == "end":
+            if text_list is None:
                 break
             
             for text in text_list:
+                if mode == "timestamp_sync_live2D":
+                    search_text_timestamp = re.search(r"(?<=\<)+[0-9.]+(?=\>)", text)
+
+                    if search_text_timestamp:
+                        timestamp = float(search_text_timestamp.group(0))
+                        await voice_queue.put(timestamp)
+
+                        text = re.search(r"(?<=\d\>)(.*)", text).group(0)
+
                 if re.search(r"[a-zA-Z\u4e00-\u9fff]", text): #檢測是否有中文或英文字母
                     text_classification = language_classification(text) #根據語言分類
 
@@ -88,7 +114,7 @@ class Chat_Core:
                         Voice = TTS_API(text=content, language=language) #生成人聲
                         await voice_queue.put([Voice, content])
         
-        await voice_queue.put("end")
+        await voice_queue.put(None)
 
     #文字生成
     async def text_generation(
@@ -133,7 +159,7 @@ class Chat_Core:
 
         await text_queue.put(remaining_sentences)
         logger.info(f"最終斷句: {remaining_sentences}")
-        await text_queue.put("end")
+        await text_queue.put(None)
 
 
 chat_core = Chat_Core()

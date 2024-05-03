@@ -204,3 +204,9 @@ def most_common(text_list: list[str], num: int = 1):
     text_list_counts = Counter(text_list).most_common(num)
 
     return [text_list_counts[i][0] for i in range(num) if i < len(text_list_counts)]
+
+#處理時間戳
+def processing_timestamps(content: str) -> list[str]:
+    timestamp_text_list = re.findall(r"(\<\d+\.?\d*\>[^\<\>]+)", content)
+
+    return timestamp_text_list

@@ -2,7 +2,6 @@ import re
 import time
 import atexit
 import subprocess
-from io import BytesIO
 from urllib.parse import quote
 
 import requests
@@ -13,9 +12,9 @@ from tools.audio import remove_start_silence, Splicing_audio
 from tools.word_processing import language_classification
 
 #啟動TTS
-cwd = config.BertVITS2.path
-venv = config.BertVITS2.venv
-api_file_name = config.BertVITS2.api_file_name
+cwd = config.TTS.path
+venv = config.TTS.venv
+api_file_name = config.TTS.api_file_name
 command = [f"{venv}/bin/python", f"{api_file_name}.py"]
 Bert_VITS2_server = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE) #啟動Bert-VITS2
 
@@ -49,22 +48,25 @@ def TTS_API(
     text: str="Voice test", 
     language: str="EN", 
     style_text: str="", 
-    config: dict[str, str | int]=config.BertVITS2.config
+    TTS_config: dict[dict[str, str | int]]=config.TTS.config
 ) -> bytes | None:
     # 合併成完整url
-    audio_url = f"http://{config['BertVITS2IP']}/voice?"
-    audio_url += f"text={quote(text)}&"
-    audio_url += f"model_id={config['model_id']}&"
-    audio_url += f"speaker_id=0&"
-    audio_url += f"sdp_ratio={config['sdp_ratio']}&"
-    audio_url += f"noise={config['noise']}&"
-    audio_url += f"noisew={config['noisew']}&"
-    audio_url += f"length={config['length']}&"
-    audio_url += f"language={language}&"
-    audio_url += f"auto_translate={config['auto_translate']}&"
-    audio_url += f"auto_split={config['auto_split']}&"
-    audio_url += f"style_text={style_text}&"
-    audio_url += f"style_weight={config['style_weight']}"
+    match config.TTS.TTS_type:
+        case "BertVITS2":
+            BertVITS2_config = TTS_config["BertVITS2"]
+            audio_url = f"http://{BertVITS2_config['BertVITS2IP']}/voice?"
+            audio_url += f"text={quote(text)}&"
+            audio_url += f"model_id={BertVITS2_config['model_id']}&"
+            audio_url += f"speaker_id=0&"
+            audio_url += f"sdp_ratio={BertVITS2_config['sdp_ratio']}&"
+            audio_url += f"noise={BertVITS2_config['noise']}&"
+            audio_url += f"noisew={BertVITS2_config['noisew']}&"
+            audio_url += f"length={BertVITS2_config['length']}&"
+            audio_url += f"language={language}&"
+            audio_url += f"auto_translate={BertVITS2_config['auto_translate']}&"
+            audio_url += f"auto_split={BertVITS2_config['auto_split']}&"
+            audio_url += f"style_text={style_text}&"
+            audio_url += f"style_weight={BertVITS2_config['style_weight']}"
 
     # 呼叫API
     #logger.info(audio_url)
