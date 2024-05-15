@@ -22,16 +22,18 @@ while True: #等待啟動
     output = Bert_VITS2_server.stdout.readline().decode()
 
     if output.find("api文档地址 http://127.0.0.1:5000/docs") != -1: #檢測是否開啟完畢
+        logger.info("TTS啟動成功")
         time.sleep(1)
 
         #預載入模型
-        url = "http://127.0.0.1:5000/voice?text=測試&model_id=0&speaker_id=0&language=ZH"
-        response = requests.get(url)
-        
-        if response.status_code == 200:
-            logger.info("TTS啟動成功")
-        else:
-            logger.error(f"錯誤：無法下載檔案，狀態碼：{response.status_code}")
+        for language in config.default.TTS_loading_language:
+            url = f"http://127.0.0.1:5000/voice?text=測試test&model_id=0&speaker_id=0&language={language}"
+            response = requests.get(url)
+            
+            if response.status_code == 200:
+                logger.info(f"成功載入TTS語言：{language}")
+            else:
+                logger.error(f"錯誤：無法下載檔案，錯誤碼：{response.status_code}")
             
         break
 

@@ -91,6 +91,9 @@ class Chat_Core:
 
             if text_list is None:
                 break
+
+            if type(text_list) is not list:
+                text_list = [text_list]
             
             for text in text_list:
                 if mode == "timestamp_sync_live2D":
@@ -120,8 +123,9 @@ class Chat_Core:
     async def text_generation(
         self,
         text_queue, 
-        prompt,
-        history
+        prompt: str,
+        history: list[list[str | None | tuple]],
+        checkable_settings: list[str]
     ):
         inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda") #用分詞器處理提示
         generation_kwargs = dict(
@@ -143,8 +147,9 @@ class Chat_Core:
             history[-1][1] += new_text.strip(self.tokenizer.eos_token) #過濾「結束」Token
             history[-1][1] = self.converter.convert(history[-1][1]) #簡轉繁中用語
 
-            if re.search(r"[.。?？!！\n]", new_text):
+            if "TTS" in checkable_settings and re.search(r"[.。?？!！\n]", new_text):
                 response, num_sentences = process_sentences(history, num_sentences, -1) #處理斷句
+                
                 if response != None: #必須要有新增的句子
                     await text_queue.put(response)
                     logger.info(f"斷句: {response}  句數: {num_sentences}")
@@ -152,14 +157,17 @@ class Chat_Core:
             yield history, str([prompt + history[-1][1]]) #即時更新聊天室和日誌
 
         #處理最後一句
-        original_num_sentences = num_sentences #原來句數
-        response, num_sentences = process_sentences(history, num_sentences - 1, None) #處理斷句並包含最後一句
-        offset = num_sentences - original_num_sentences - 1 #剩餘句數
-        remaining_sentences = response[offset:] #剩餘句子
-
-        await text_queue.put(remaining_sentences)
-        logger.info(f"最終斷句: {remaining_sentences}")
-        await text_queue.put(None)
+        if "TTS" in checkable_settings:
+            original_num_sentences = num_sentences #原來句數
+            response, num_sentences = process_sentences(history, num_sentences - 1, None) #處理斷句並包含最後一句
+            logger.info(f"斷句: {response}  句數: {num_sentences}")
+            offset = original_num_sentences - num_sentences - 1 #剩餘句數
+            remaining_sentences = response[offset:] #剩餘句子
+            await text_queue.put(remaining_sentences)
+            logger.info(f"最終斷句: {remaining_sentences}  句數: {num_sentences}")
+        
+        logger.info(f"使用者輸入：{[history[-1][0]]}")
+        logger.info(f"LLM輸出：{[history[-1][1]]}")
 
 
 chat_core = Chat_Core()

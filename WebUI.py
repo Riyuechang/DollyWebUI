@@ -78,27 +78,29 @@ async def bot(
                     question_input, 
                     chat_core.model_name, 
                     history_num, 
-                    chat_core.tokenizer
+                    chat_core.tokenizer,
+                    "hypnotic"
                 )
 
                 #文本生成
                 async for result in chat_core.text_generation(
                     text_queue, 
                     prompt,
-                    question_input
+                    question_input,
+                    checkable_settings
                 ):
                     yield result
 
             case "sync_live2D":
                 sentence_list = sentence_break(question_input)
                 await text_queue.put(sentence_list)
-                await text_queue.put(None)
             
             case "timestamp_sync_live2D":
                 timestamp_text_list = processing_timestamps(question_input)
                 await text_queue.put(timestamp_text_list)
-                await text_queue.put(None)
+                
         
+        await text_queue.put(None)
         await text_task
         await voice_task
     finally:
@@ -114,13 +116,24 @@ async def bot(
         except:
             logger.info("未有需要釋放的VTube_Studio_API資源")
 
+#重新生成
+async def regenerate(
+    history: list[list[str | None | tuple]], 
+    *args
+):
+    history[-1][1] = ""
+    
+    async for result in bot( #文本生成
+        question_input=history, 
+        *args
+    ):
+        yield result
+
 #連接YouTube聊天室
 async def YouTube_chat_room(
     youtube_channel_id: str, 
     history: list[list[str | None | tuple]], 
-    audio_volume: int, 
-    history_num: int,
-    checkable_settings: list[str]
+    *args
 ):
     chat_core.YouTube_chat_room_open = True #設定連接狀態
     message = ""
@@ -155,20 +168,19 @@ async def YouTube_chat_room(
                 if chat_core.YouTube_chat_room_open: #連接狀態為True時,處理訊息
                     response_str = response_queue.get() #取得回覆隊列內容
                     logger.info(response_str)
+
                     YouTube_chat_information = literal_eval(response_str) #從字串換成字典
                     YouTube_chat_author_name = YouTube_chat_information["author_name"]
                     YouTube_chat_message = YouTube_chat_information["message"]
                     logger.info(f"聊天室【{YouTube_chat_author_name}:{YouTube_chat_message}】")
-                    history += [[YouTube_chat_message, ""]] #將聊天室訊息存到歷史紀錄裡
 
                     response = requests.get(f"http://127.0.0.1:3840/clear")
                     logger.info(f"網頁即時文字狀態:{response}")
 
+                    history += [[YouTube_chat_message, ""]] #將聊天室訊息存到歷史紀錄裡
                     async for result in bot( #文本生成
                         history, 
-                        audio_volume, 
-                        history_num, 
-                        checkable_settings
+                        *args
                     ):
                         history, log = result
                         yield message, history, log
@@ -237,20 +249,35 @@ async def timestamp_sync_live2D(
     ):
         pass
 
+
+def update_and_reload_config(hypnotic_prompt: str):
+    with config.updata_config_yml() as config_yml:
+        config_yml.updata(
+            key="hypnotic_prompt",
+            old=config.default.hypnotic_prompt,
+            new=hypnotic_prompt,
+            str_mode=True
+        )
+
+    config.load_config()
+    logger.info("更新並重新載入設定檔成功")
+
+
 with gr.Blocks() as demo:
-    gr.Markdown("Dolly WebUI v0.0.1")
+    gr.Markdown("Dolly WebUI v1.0.0")
 
     with gr.Tab("控制面板"):
         with gr.Row():
             with gr.Column(scale=4):
-                chatbot = gr.Chatbot(label="聊天室", bubble_full_width=False,)
+                chat_room_chatbot = gr.Chatbot(label="聊天室", bubble_full_width=False, show_copy_button=True)
 
                 with gr.Row():
                     with gr.Column(scale=5):
-                        message = gr.Textbox(label="訊息")
+                        user_message_textbox = gr.Textbox(label="訊息")
 
                     with gr.Column(scale=1, min_width=0):
-                        clear = gr.Button("清除聊天紀錄", variant="primary", scale=1)
+                        regenerate_button = gr.Button("重新生成  ↻", variant="primary", scale=1)
+                        clear_button = gr.Button("清除聊天紀錄", variant="primary", scale=1)
 
                 log = gr.Textbox(label="日誌")
 
@@ -277,7 +304,7 @@ with gr.Blocks() as demo:
                         step=1 if config.default.history.history_mode == "rounds" else 50
                     )
                     checkable_settings_checkboxgroup = gr.CheckboxGroup(
-                        ["情緒分析"], 
+                        ["TTS", "情緒分析"], 
                         label="可選項",
                         value=config.default.checkable_settings
                     )
@@ -318,26 +345,37 @@ with gr.Blocks() as demo:
             label="語言", 
             value=config.default.TTS_Language
         )
+        hypnotic_prompt_textarea = gr.TextArea(
+            label="催眠提示詞", 
+            value=config.default.hypnotic_prompt
+        )
+        update_and_reload_config_button = gr.Button("更新並重新載入設定檔", variant="primary")
 
-    message.submit( #使用者輸入,然後AI回覆
+    user_message_textbox.submit( #使用者輸入,然後AI回覆
         user,
-        [message,chatbot],
-        [message,chatbot]
+        [user_message_textbox,chat_room_chatbot],
+        [user_message_textbox,chat_room_chatbot]
     ).then(
         bot,
-        [chatbot, audio_volume_slider, history_num_slider, checkable_settings_checkboxgroup],
-        [chatbot,log]
+        [chat_room_chatbot, audio_volume_slider, history_num_slider, checkable_settings_checkboxgroup],
+        [chat_room_chatbot,log]
     )
-    clear.click(lambda : None,None,chatbot) #清空聊天室
+    regenerate_button.click(
+        regenerate,
+        [chat_room_chatbot, audio_volume_slider, history_num_slider, checkable_settings_checkboxgroup],
+        [chat_room_chatbot,log]
+    )
+    clear_button.click(lambda : None,None,chat_room_chatbot) #清空聊天室
     connect_chat.click( #連接YouTube聊天室
         YouTube_chat_room,
-        [youtube_channel_id, chatbot, audio_volume_slider, history_num_slider, checkable_settings_checkboxgroup],
-        [message,chatbot,log]
+        [youtube_channel_id, chat_room_chatbot, audio_volume_slider, history_num_slider, checkable_settings_checkboxgroup],
+        [user_message_textbox,chat_room_chatbot,log]
     )
     stop_connect_chat.click(close_YouTube_chat_room) #關閉連接YouTube聊天室
     audio_device_dropdown.change(change_audio_device, audio_device_dropdown) #改變音訊設備
     tts_generation_button.click(tts_processing, [TTS_textarea,voice_audio], voice_audio)
     sync_live2D_button.click(sync_live2D, [TTS_textarea,audio_volume_slider,checkable_settings_checkboxgroup])
     timestamp_sync_live2D_button.click(timestamp_sync_live2D, [TTS_textarea,audio_volume_slider,checkable_settings_checkboxgroup])
+    update_and_reload_config_button.click(update_and_reload_config, hypnotic_prompt_textarea)
 
 demo.launch() #啟用WebUI

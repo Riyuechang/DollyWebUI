@@ -87,15 +87,22 @@ def prompt_process(
     history: list[list[str | None | tuple]], 
     model_name: str,
     history_num: int,
-    tokenizer
+    tokenizer,
+    sys_prompt_mode: Literal["hypnotic", "sys"] = "hypnotic"
 ):
-    instruction = history[-1][0] #使用者的輸入
-    sys_prompt = config.llm_model.sys_prompt[model_name]
-    hypnotic_prompt = config.default.hypnotic_prompt + "知道了就回答OK。 "
-    merge_system_prompts = sys_prompt + promptTemplate(model_name, hypnotic_prompt, "OK。\n")
+    match sys_prompt_mode:
+        case "hypnotic":
+            sys_prompt = config.llm_model.sys_prompt[model_name]
+            hypnotic_prompt = config.default.hypnotic_prompt + "知道了就回答OK。 "
+            merge_system_prompts = sys_prompt + promptTemplate(model_name, hypnotic_prompt, "OK。\n")
+        
+        case "sys":
+            merge_system_prompts = config.default.hypnotic_prompt
 
     history_mode = config.default.history.history_mode
     before_history = history_process(history, model_name, history_num, history_mode, tokenizer)
+
+    instruction = history[-1][0] #使用者的輸入
     prompt = merge_system_prompts + before_history + promptTemplate(model_name,instruction) #合併成完整提示
 
     return prompt

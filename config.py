@@ -29,9 +29,10 @@ class Default_Config:
         self, 
         YouTubeChannelID: str,
         TTS_Language: str,
+        TTS_loading_language: list[str],
         llm_model_name: str,
         sentiment_analysis_model_name: str,
-        sentiment: str,
+        sentiment: Literal["happiness", "like", "surprise", "none", "fear", "disgust", "sadness", "anger"],
         checkable_settings: list[str],
         hypnotic_prompt: str,
         audio: dict[str | int],
@@ -39,9 +40,10 @@ class Default_Config:
     ):
         self.YouTubeChannelID: str = YouTubeChannelID
         self.TTS_Language: str = TTS_Language
+        self.TTS_loading_language: list[str] = TTS_loading_language
         self.llm_model_name: str = llm_model_name
         self.sentiment_analysis_model_name: str = sentiment_analysis_model_name
-        self.sentiment: str = sentiment
+        self.sentiment: Literal["happiness", "like", "surprise", "none", "fear", "disgust", "sadness", "anger"] = sentiment
         self.checkable_settings: list[str] = checkable_settings
         self.hypnotic_prompt: str = hypnotic_prompt
         self.audio: Audio_Config = Audio_Config(**audio)
@@ -95,14 +97,60 @@ class TTS_Config:
 
 
 class Config:
-    def __init__(self, config_path: str):
-        with open(config_path, "r", encoding="utf-8") as file:
+    def __init__(
+        self, 
+        config_path: str
+    ):
+        self.config_path: str = config_path
+        self.load_config()
+    
+
+    def load_config(self):
+        with open(self.config_path, "r", encoding="utf-8") as file:
             config_data: dict = yaml.safe_load(file)
         
         self.default: Default_Config = Default_Config(**config_data["default"])
         self.llm_model: LLM_Model_Config = LLM_Model_Config(**config_data["llm_model"])
         self.TTS: TTS_Config = TTS_Config(**config_data["TTS"])
         self.VTube_Studio: VTube_Studio_Config = VTube_Studio_Config(**config_data["VTube_Studio"])
+    
+
+    def updata_config_yml(self):
+        return self.Updata_Config_Yml(self.config_path)
+
+
+    class Updata_Config_Yml:
+        def __init__(self, config_path):
+            self.config_path: str = config_path
+
+
+        def __enter__(self):
+            with open(self.config_path, "r", encoding="utf-8") as file:
+                self.data: str = file.read()
+            
+            return self
+
+
+        def __exit__(self, type, value, traceback):
+            with open(self.config_path, "w", encoding="utf-8") as file:
+                file.write(self.data)
+        
+
+        def updata(
+            self, 
+            key: str, 
+            old: str, 
+            new: str,
+            str_mode: bool = False
+        ):
+            if str_mode:
+                old = old.replace("\n", "\\n")
+                new = new.replace("\n", "\\n")
+                replace_list = [f"{key}: \"{old}\"", f"{key}: \"{new}\""]
+            else:
+                replace_list = [f"{key}: {old}", f"{key}: {new}"]
+
+            self.data = self.data.replace(*replace_list)
 
 
 config_path = "config.yml"
