@@ -5,11 +5,12 @@ import subprocess
 from urllib.parse import quote
 
 import requests
+from emoji import emoji_count
 
 from config import config
 from tools.log import logger
-from tools.audio import remove_start_silence, Splicing_audio
-from tools.word_processing import language_classification
+from tools.audio import remove_silence, Splicing_audio
+from tools.word_processing import language_classification, unicode_emoji_parse
 
 #啟動TTS
 cwd = config.TTS.path
@@ -49,7 +50,6 @@ def Execute_at_the_end():
 def TTS_API(
     text: str="Voice test", 
     language: str="EN", 
-    style_text: str="", 
     TTS_config: dict[dict[str, str | int]]=config.TTS.config
 ) -> bytes | None:
     # 合併成完整url
@@ -67,11 +67,11 @@ def TTS_API(
             audio_url += f"language={language}&"
             audio_url += f"auto_translate={BertVITS2_config['auto_translate']}&"
             audio_url += f"auto_split={BertVITS2_config['auto_split']}&"
-            audio_url += f"style_text={style_text}&"
+            audio_url += f"style_text={BertVITS2_config['style_text']}&"
             audio_url += f"style_weight={BertVITS2_config['style_weight']}"
 
     # 呼叫API
-    #logger.info(audio_url)
+    logger.info(f"正在調用TTS_API   URL:{audio_url}")
     response = requests.get(audio_url)
 
     if response.status_code == 200:
@@ -81,11 +81,15 @@ def TTS_API(
         logger.error(f"錯誤：無法下載檔案，狀態碼：{response.status_code}")
 
 #TTS生成
-def tts_generation(text: str) -> bytes | None:
+def tts_generation(
+    text: str, 
+    streamer: bool = False
+):
     Voice_list: list[bytes] = []
 
-    if re.search(r"[a-zA-Z\u4e00-\u9fff]", text): #檢測是否有中文或英文字母
-        text_classification = language_classification(text) #根據語言分類
+    if re.search(r"[a-zA-Z\u4e00-\u9fff]", text) or emoji_count(text): #檢測是否有中文或英文字母或表情符號
+        processed_emoji_text = unicode_emoji_parse(text) #處理表情符號
+        text_classification = language_classification(processed_emoji_text) #根據語言分類
 
         for text_dict in text_classification: #根據語言生成TTS
             content = text_dict["content"]
@@ -94,11 +98,18 @@ def tts_generation(text: str) -> bytes | None:
             logger.info(f"TTS內容  語言:{language}  文字:{[content]}")
 
             Voice = TTS_API(text=content, language=language) #生成人聲
-            Voice_list.append(remove_start_silence(Voice))
-    
-    if Voice_list:
-        Voice_bytes = Splicing_audio(Voice_list)
-    else:
-        Voice_bytes = None
 
-    return Voice_bytes
+            if streamer:
+                yield Voice, content
+            else:
+                Voice_list.append(remove_silence(Voice, 100))
+    
+        if not streamer:
+            if Voice_list:
+                Voice_bytes = Splicing_audio(Voice_list)
+            else:
+                Voice_bytes = None
+
+            yield Voice_bytes
+    else:
+        yield None, None

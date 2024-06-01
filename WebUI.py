@@ -35,6 +35,17 @@ async def bot(
     checkable_settings: list[str],
     mode: Literal["text_generation", "sync_live2D", "timestamp_sync_live2D"] = "text_generation"
 ):
+    if not question_input:
+        logger.error("InputError: question_input不能為空")
+        yield question_input, ""
+        return
+    elif type(question_input) is list:
+        if not question_input[-1][0]:
+            del question_input[-1]
+            logger.error("InputError: question_input的使用者輸入不能為空")
+            yield question_input, ""
+            return
+    
     try:
         chat_core.VTube_Studio_API_connection_status = False #VTube_Studio_API連接狀態
         if "情緒分析" in checkable_settings: #是否啟用情緒分析
@@ -79,7 +90,7 @@ async def bot(
                     chat_core.model_name, 
                     history_num, 
                     chat_core.tokenizer,
-                    "hypnotic"
+                    config.default.hypnotic_mode
                 )
 
                 #文本生成
@@ -100,6 +111,7 @@ async def bot(
                 await text_queue.put(timestamp_text_list)
                 
         
+        logger.info("正在停止語音生成")
         await text_queue.put(None)
         await text_task
         await voice_task
@@ -121,10 +133,15 @@ async def regenerate(
     history: list[list[str | None | tuple]], 
     *args
 ):
+    if not history:
+        logger.error("聊天室不能為空")
+        yield history, ""
+        return
+    
     history[-1][1] = ""
     
     async for result in bot( #文本生成
-        question_input=history, 
+        history, 
         *args
     ):
         yield result
@@ -212,7 +229,12 @@ def tts_processing(
     text: str, 
     audio
 ) -> bytes | None:
-    Voice_bytes = tts_generation(text)
+    if not text:
+        logger.error("InputError: text不能為空")
+        return audio
+
+    for result in tts_generation(text):
+        Voice_bytes = result
 
     if Voice_bytes is None:
         return audio
@@ -225,6 +247,10 @@ async def sync_live2D(
     audio_volume: int, 
     checkable_settings: list[str]
 ):
+    if not text:
+        logger.error("InputError: text不能為空")
+        return
+        
     async for _ in bot( #文本生成
         question_input=text, 
         audio_volume=audio_volume, 
@@ -240,6 +266,10 @@ async def timestamp_sync_live2D(
     audio_volume: int, 
     checkable_settings: list[str]
 ):
+    if not text:
+        logger.error("InputError: text不能為空")
+        return
+
     async for _ in bot( #文本生成
         question_input=text, 
         audio_volume=audio_volume, 
@@ -258,6 +288,7 @@ def update_and_reload_config(hypnotic_prompt: str):
             new=hypnotic_prompt,
             str_mode=True
         )
+        logger.info(f"修改hypnotic_prompt成:{hypnotic_prompt}")
 
     config.load_config()
     logger.info("更新並重新載入設定檔成功")
@@ -272,20 +303,26 @@ with gr.Blocks() as demo:
                 chat_room_chatbot = gr.Chatbot(label="聊天室", bubble_full_width=False, show_copy_button=True)
 
                 with gr.Row():
-                    with gr.Column(scale=5):
-                        user_message_textbox = gr.Textbox(label="訊息")
+                    with gr.Column(min_width=0):
+                        voice_input_button = gr.Button(value="語音輸入", variant="primary")
 
-                    with gr.Column(scale=1, min_width=0):
-                        regenerate_button = gr.Button("重新生成  ↻", variant="primary", scale=1)
-                        clear_button = gr.Button("清除聊天紀錄", variant="primary", scale=1)
+                    with gr.Column(min_width=0):
+                        bot_message_tts_button = gr.Button("TTS語音", variant="primary")
 
+                    with gr.Column(min_width=0):
+                        regenerate_button = gr.Button("重新生成  ↻", variant="primary")
+                        
+                    with gr.Column(min_width=0):
+                        clear_button = gr.Button("清除聊天紀錄", variant="primary")
+
+                user_message_textbox = gr.Textbox(label="訊息")
                 log = gr.Textbox(label="日誌")
 
             with gr.Column(scale=1, min_width=0):
                 with gr.Row():
                     audio_device_dropdown = gr.Dropdown(
-                        ["預設"] + audio_device_names_list, 
                         label="音訊裝置", 
+                        choices=["預設"] + audio_device_names_list, 
                         value=audio_device_name,
                         filterable=False
                     )
@@ -304,8 +341,8 @@ with gr.Blocks() as demo:
                         step=1 if config.default.history.history_mode == "rounds" else 50
                     )
                     checkable_settings_checkboxgroup = gr.CheckboxGroup(
-                        ["TTS", "情緒分析"], 
                         label="可選項",
+                        choices=["TTS", "情緒分析"], 
                         value=config.default.checkable_settings
                     )
 
@@ -335,47 +372,99 @@ with gr.Blocks() as demo:
                 voice_audio = gr.Audio(label="聲音", interactive=False)
 
     with gr.Tab("設定"):
-        model_name_Radio = gr.Radio(
-            config.llm_model.name, 
-            label="LLM Model", 
-            value=config.default.llm_model_name
-        )
-        language_Radio = gr.Radio(
-            ["ZH", "EN", "AUTO"], 
-            label="語言", 
-            value=config.default.TTS_Language
-        )
-        hypnotic_prompt_textarea = gr.TextArea(
-            label="催眠提示詞", 
-            value=config.default.hypnotic_prompt
-        )
-        update_and_reload_config_button = gr.Button("更新並重新載入設定檔", variant="primary")
+        with gr.Row():
+            with gr.Column():
+                language_Radio = gr.Radio(
+                    label="語言", 
+                    choices=["ZH", "EN", "AUTO"], 
+                    value=config.default.TTS_Language
+                )
+
+            with gr.Column():
+                hypnotic_prompt_textarea = gr.TextArea(
+                    label="催眠提示詞", 
+                    value=config.default.hypnotic_prompt
+                )
+                update_and_reload_config_button = gr.Button("更新並重新載入設定檔", variant="primary")
 
     user_message_textbox.submit( #使用者輸入,然後AI回覆
         user,
-        [user_message_textbox,chat_room_chatbot],
-        [user_message_textbox,chat_room_chatbot]
+        inputs=[
+            user_message_textbox,
+            chat_room_chatbot
+        ],
+        outputs=[
+            user_message_textbox,
+            chat_room_chatbot
+        ]
     ).then(
         bot,
-        [chat_room_chatbot, audio_volume_slider, history_num_slider, checkable_settings_checkboxgroup],
-        [chat_room_chatbot,log]
+        inputs=[
+            chat_room_chatbot, 
+            audio_volume_slider, 
+            history_num_slider, 
+            checkable_settings_checkboxgroup
+        ],
+        outputs=[
+            chat_room_chatbot,
+            log
+        ]
     )
     regenerate_button.click(
         regenerate,
-        [chat_room_chatbot, audio_volume_slider, history_num_slider, checkable_settings_checkboxgroup],
-        [chat_room_chatbot,log]
+        inputs=[
+            chat_room_chatbot, 
+            audio_volume_slider, 
+            history_num_slider, 
+            checkable_settings_checkboxgroup
+        ],
+        outputs=[
+            chat_room_chatbot,
+            log
+        ]
     )
     clear_button.click(lambda : None,None,chat_room_chatbot) #清空聊天室
     connect_chat.click( #連接YouTube聊天室
         YouTube_chat_room,
-        [youtube_channel_id, chat_room_chatbot, audio_volume_slider, history_num_slider, checkable_settings_checkboxgroup],
-        [user_message_textbox,chat_room_chatbot,log]
+        inputs=[
+            youtube_channel_id, 
+            chat_room_chatbot, 
+            audio_volume_slider, 
+            history_num_slider, 
+            checkable_settings_checkboxgroup
+        ],
+        outputs=[
+            user_message_textbox,
+            chat_room_chatbot,
+            log
+        ]
     )
     stop_connect_chat.click(close_YouTube_chat_room) #關閉連接YouTube聊天室
     audio_device_dropdown.change(change_audio_device, audio_device_dropdown) #改變音訊設備
-    tts_generation_button.click(tts_processing, [TTS_textarea,voice_audio], voice_audio)
-    sync_live2D_button.click(sync_live2D, [TTS_textarea,audio_volume_slider,checkable_settings_checkboxgroup])
-    timestamp_sync_live2D_button.click(timestamp_sync_live2D, [TTS_textarea,audio_volume_slider,checkable_settings_checkboxgroup])
+    tts_generation_button.click(
+        tts_processing, 
+        inputs=[
+            TTS_textarea,
+            voice_audio
+        ], 
+        outputs=voice_audio
+    )
+    sync_live2D_button.click(
+        sync_live2D, 
+        inputs=[
+            TTS_textarea,
+            audio_volume_slider,
+            checkable_settings_checkboxgroup
+        ]
+    )
+    timestamp_sync_live2D_button.click(
+        timestamp_sync_live2D, 
+        inputs=[
+            TTS_textarea,
+            audio_volume_slider,
+            checkable_settings_checkboxgroup
+        ]
+    )
     update_and_reload_config_button.click(update_and_reload_config, hypnotic_prompt_textarea)
 
 demo.launch() #啟用WebUI

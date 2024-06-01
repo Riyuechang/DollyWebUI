@@ -2,7 +2,13 @@ import re
 from typing import Literal
 from collections import Counter
 
+import opencc
+from emoji import demojize, emoji_count
+
 from config import config
+
+
+opencc_converter = opencc.OpenCC('s2twp.json') #簡中轉繁中用語
 
 #提示模板
 def promptTemplate(
@@ -109,22 +115,44 @@ def prompt_process(
 
 #斷句
 def sentence_break(content: str) -> list[str]:
-    previous_text_type = "" #上一個文字的類型
+    previous_text_type = "Other" #上一個文字的類型
     text = "" #文字暫存
     sentences = [] #句子列表
-    character_to_wrap = r"[.。?？!！\n]" #要換行的字元
+    #character_to_wrap = r"[.。?？!！\n]" #要換行的字元
 
     for char in content:
-        if re.match(character_to_wrap, char): #是換行字元就暫存
+        if char in "。?？!！\n": #是換行字元就暫存
             text += char
             previous_text_type = "newline_character" #更新文字類型
-        else:
-            if previous_text_type == "newline_character": #上一個是換行字元就增加新句子
+
+        elif char == ".":
+            text += char
+
+            if previous_text_type == "number":
+                previous_text_type = "number_dot"
+
+            elif "dot" in previous_text_type:
+                previous_text_type = "dot_dot"
+            else:
+                previous_text_type = "dot"
+        
+        elif char in "0123456789":
+            if previous_text_type in ["newline_character", "dot"]: #斷句判定
                 sentences.append(text)
                 text = char
-                previous_text_type = "Other" #更新文字類型
+            else:
+                text += char
+
+            previous_text_type = "number"
+
+        else:
+            if previous_text_type in ["newline_character", "number_dot", "dot"]: #斷句判定
+                sentences.append(text)
+                text = char
             else:
                 text += char #不是則暫存
+            
+            previous_text_type = "Other" #更新文字類型
 
     if text != "": #如果暫存不是空的就增加新句子
         sentences.append(text)
@@ -155,7 +183,7 @@ def language_classification(content: str) -> list[dict[str, str]]:
     language_list = [] #儲存用列表
     first_character = "" #一開始是符號儲存的地方
     for text in content:
-        if re.search(r"[\u4e00-\u9fff]", text):
+        if re.search(r"[\u4e00-\u9fff0-9]", text):
             if language_result == "ZH":
                 language_dict["content"] += text
             else:
@@ -217,3 +245,9 @@ def processing_timestamps(content: str) -> list[str]:
     timestamp_text_list = re.findall(r"(\<\d+\.?\d*\>[^\<\>]+)", content)
 
     return timestamp_text_list
+
+#把unicode的表情符號轉換成對應的中文
+def unicode_emoji_parse(text: str) -> str:
+    processed_emoji_text_zh = demojize(text, delimiters=("(",")"), language="zh")
+    processed_emoji_text_zh_tw = opencc_converter.convert(processed_emoji_text_zh)
+    return processed_emoji_text_zh_tw

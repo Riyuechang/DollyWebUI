@@ -4,15 +4,14 @@ import asyncio
 from typing import Literal
 from threading import Thread
 
-import opencc
 import requests
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
 from config import config
 from tools.log import logger
-from tools.word_processing import process_sentences, language_classification
-from tools.audio import remove_start_silence, play_audio
-from tools.tts import TTS_API
+from tools.word_processing import process_sentences, opencc_converter
+from tools.audio import remove_silence, play_audio
+from tools.tts import tts_generation
 from sentiment_analysis import multi_segment_sentiment_analysis
 from VTube_Studio_API import Websocket_connect
 
@@ -24,7 +23,6 @@ class Chat_Core:
         #初始設定
         self.model_name = config.default.llm_model_name #模型型號
         self.model_path = config.llm_model.path[self.model_name]
-        self.converter = opencc.OpenCC('s2twp.json') #簡中轉繁中用語
         self.YouTube_chat_room_open = False #YouTub聊天室連接狀態
         self.VTube_Studio_API_connection_status = False #VTube_Studio_API連接狀態
 
@@ -48,12 +46,14 @@ class Chat_Core:
         VTube_Studio_API: Websocket_connect,
         mode: Literal["text_generation", "sync_live2D", "timestamp_sync_live2D"] = "text_generation"
     ):
+        loop = asyncio.get_event_loop()
         start_timestamp = time.time()
         
         while True:
             voice = await voice_queue.get()
 
             if voice is None:
+                logger.info("已停止語音播放")
                 break
 
             if mode == "timestamp_sync_live2D" and type(voice) is float:
@@ -73,11 +73,12 @@ class Chat_Core:
 
             #同步顯示文字
             if self.YouTube_chat_room_open:
-                response = requests.get(f"http://127.0.0.1:3840/text_to_display_add?data={voice[1]}")
+                url = f"http://127.0.0.1:3840/text_to_display_add?data={voice[1]}"
+                response = await loop.run_in_executor(None, requests.get(), url)
                 logger.info(f"網頁即時文字狀態:{response.content}")
 
-            audio_processing = remove_start_silence(voice[0]) #移除頭空白音訊
-            await play_audio(audio_processing, audio_volume)
+            audio_processing = remove_silence(voice[0], 100) #移除頭空白音訊
+            await loop.run_in_executor(None, play_audio, audio_processing, audio_volume)
 
     #語音生成
     async def speech_generation(
@@ -86,10 +87,13 @@ class Chat_Core:
         voice_queue,
         mode: Literal["text_generation", "sync_live2D", "timestamp_sync_live2D"] = "text_generation"
     ):
+        loop = asyncio.get_event_loop()
+        
         while True:
             text_list = await text_queue.get()
 
             if text_list is None:
+                logger.info("已停止語音生成")
                 break
 
             if type(text_list) is not list:
@@ -104,19 +108,17 @@ class Chat_Core:
                         await voice_queue.put(timestamp)
 
                         text = re.search(r"(?<=\d\>)(.*)", text).group(0)
+                
+                def blocking_generator():
+                    for result in tts_generation(text, True):
+                        Voice, content = result
 
-                if re.search(r"[a-zA-Z\u4e00-\u9fff]", text): #檢測是否有中文或英文字母
-                    text_classification = language_classification(text) #根據語言分類
-
-                    for text_dict in text_classification: #根據語言生成TTS
-                        content = text_dict["content"]
-                        language = text_dict["language"]
-                        
-                        logger.info(f"TTS內容  語言:{language}  文字:{[content]}")
-
-                        Voice = TTS_API(text=content, language=language) #生成人聲
-                        await voice_queue.put([Voice, content])
+                        if Voice is not None and content is not None:
+                            asyncio.run_coroutine_threadsafe(voice_queue.put([Voice, content]), loop)
+                
+                await loop.run_in_executor(None, blocking_generator)
         
+        logger.info("正在停止語音播放")
         await voice_queue.put(None)
 
     #文字生成
@@ -145,7 +147,7 @@ class Chat_Core:
         num_sentences = 1 #累計句數
         for new_text in self.streamer:
             history[-1][1] += new_text.strip(self.tokenizer.eos_token) #過濾「結束」Token
-            history[-1][1] = self.converter.convert(history[-1][1]) #簡轉繁中用語
+            history[-1][1] = opencc_converter.convert(history[-1][1]) #簡轉繁中用語
 
             if "TTS" in checkable_settings and re.search(r"[.。?？!！\n]", new_text):
                 response, num_sentences = process_sentences(history, num_sentences, -1) #處理斷句

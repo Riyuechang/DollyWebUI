@@ -34,6 +34,7 @@ class Default_Config:
         sentiment_analysis_model_name: str,
         sentiment: Literal["happiness", "like", "surprise", "none", "fear", "disgust", "sadness", "anger"],
         checkable_settings: list[str],
+        hypnotic_mode: Literal["hypnotic", "sys"],
         hypnotic_prompt: str,
         audio: dict[str | int],
         history: dict[str | int],
@@ -45,6 +46,7 @@ class Default_Config:
         self.sentiment_analysis_model_name: str = sentiment_analysis_model_name
         self.sentiment: Literal["happiness", "like", "surprise", "none", "fear", "disgust", "sadness", "anger"] = sentiment
         self.checkable_settings: list[str] = checkable_settings
+        self.hypnotic_mode: Literal["hypnotic", "sys"] = hypnotic_mode
         self.hypnotic_prompt: str = hypnotic_prompt
         self.audio: Audio_Config = Audio_Config(**audio)
         self.history: History_Config = History_Config(**history)

@@ -1,5 +1,6 @@
-import asyncio
+import time
 from io import BytesIO
+from typing import Literal
 
 import pygame
 import pygame._sdl2.audio as sdl2_audio
@@ -41,7 +42,7 @@ def change_audio_device(audio_device_name: str):
         logger.info(f"改變音訊設備成功  設備名稱:{audio_device_name}")
 
 #播放音訊
-async def play_audio(
+def play_audio(
     voice: bytes, 
     audio_volume: int
 ):
@@ -50,7 +51,7 @@ async def play_audio(
     sound.play()
 
     while pygame.mixer.get_busy(): #等待播放完畢
-        await asyncio.sleep(0.1)
+        time.sleep(0.1)
 
 #把pydub格式轉成bytes
 def pydub_format_to_bytes(pydub_format):
@@ -59,28 +60,34 @@ def pydub_format_to_bytes(pydub_format):
 
     return audio_bytes
 
-#移除頭尾空白音訊
-def remove_start_and_end_silence(audio: bytes) -> bytes:
+#移除空白音訊
+def remove_silence(
+    audio: bytes, 
+    reserved_length: int = 0,
+    mode: Literal["start", "end", "start_and_end"] = "start_and_end"
+) -> bytes:
     audio_pydub = AudioSegment.from_wav(BytesIO(audio)) #轉換成pydhb可以讀的格式
-    start_silence = detect_leading_silence(audio_pydub) #計算頭空白音訊範圍
-    end_silence = detect_leading_silence(audio_pydub.reverse()) #計算尾空白音訊範圍
-    audio_duration = len(audio_pydub) #音訊總長度
-    after_trim_audio = audio_pydub[start_silence:audio_duration - end_silence] #只取扣除頭尾空白的部份
-    audio_bytes = pydub_format_to_bytes(after_trim_audio)
 
-    return audio_bytes
+    if "start" in mode:
+        start_silence = detect_leading_silence(audio_pydub) #計算頭空白音訊範圍
+        start_silence_index = max(start_silence - reserved_length, 0)
+    else:
+        start_silence_index = None
 
-#移除頭空白音訊
-def remove_start_silence(audio: bytes) -> bytes:
-    audio_pydub = AudioSegment.from_wav(BytesIO(audio))
-    start_silence = detect_leading_silence(audio_pydub)
-    after_trim_audio = audio_pydub[start_silence:]
+    if "end" in mode:
+        end_silence = detect_leading_silence(audio_pydub.reverse()) #計算尾空白音訊範圍
+        audio_duration = len(audio_pydub) #音訊總長度
+        end_silence_index = min(audio_duration - end_silence + reserved_length, audio_duration)
+    else:
+        end_silence_index = None
+
+    after_trim_audio = audio_pydub[start_silence_index:end_silence_index] #只取扣除頭尾空白的部份
     audio_bytes = pydub_format_to_bytes(after_trim_audio)
 
     return audio_bytes
 
 #拼接音訊
-def Splicing_audio(bytes_list):
+def Splicing_audio(bytes_list: list[bytes]) -> bytes:
     for index,file in enumerate(bytes_list):
         if index == 0:
             audio_pydub = AudioSegment.from_wav(BytesIO(file))
