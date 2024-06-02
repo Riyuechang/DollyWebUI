@@ -1,0 +1,12 @@
+__pycache__
+tempCodeRunnerFile.py
+test.py
+runtime/
+/_backup
+/_cache
+/flagged
+/TTS
+/Authentication_Token.json
+/催眠提示詞.txt
+*.bin
+*.safetensors
