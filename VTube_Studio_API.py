@@ -1,3 +1,4 @@
+import os.path as os_path
 import json
 
 from websockets.sync.client import connect
@@ -113,21 +114,10 @@ class Websocket_connect:
         logger.info("正在嘗試連接VTube Studio")
         API_connection_status = False
 
-        with open('Authentication_Token.json', 'r') as file:
-            Authentication_Token_json = json.load(file)
-        
-        restore_connection = self.websocket_send( #嘗試用上次的Authentication_Token恢復連接
-            AuthenticationRequest(
-                pluginName, 
-                pluginDeveloper, 
-                Authentication_Token_json
-            ))
 
-        if restore_connection["data"]["authenticated"]: #成功恢復連接
-            API_connection_status = True
-            logger.info("已連接VTube Studio API")
-        else: #恢復連接失敗
-            logger.info("恢復連接失敗")
+        def apply_to_connect_to_VTube_Studio():
+            nonlocal API_connection_status
+
             connection_request = self.websocket_send( #申請連線
                 AuthenticationTokenRequest(
                     pluginName, 
@@ -153,6 +143,31 @@ class Websocket_connect:
                     logger.error("VTube Studio API連接失敗")
             else:
                 logger.error("使用者拒絕連接VTube Studio API")
+
+
+        if not os_path.isfile('Authentication_Token.json'):
+            with open('Authentication_Token.json', 'w') as file:
+                pass
+
+            apply_to_connect_to_VTube_Studio()
+            return API_connection_status
+
+        with open('Authentication_Token.json', 'r') as file:
+            Authentication_Token_json = json.load(file)
+        
+        restore_connection = self.websocket_send( #嘗試用上次的Authentication_Token恢復連接
+            AuthenticationRequest(
+                pluginName, 
+                pluginDeveloper, 
+                Authentication_Token_json
+            ))
+
+        if restore_connection["data"]["authenticated"]: #成功恢復連接
+            API_connection_status = True
+            logger.info("已連接VTube Studio API")
+        else: #恢復連接失敗
+            logger.info("恢復連接失敗")
+            apply_to_connect_to_VTube_Studio()
         
         return API_connection_status
     
