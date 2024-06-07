@@ -55,8 +55,10 @@ async def bot(
                     config.VTube_Studio.pluginName, 
                     config.VTube_Studio.pluginDeveloper
                 )
-            except:
+            except ConnectionRefusedError:
                 logger.info("無法連接VTube Studio API")
+            except TimeoutError:
+                logger.info("連接VTube Studio API超時")
 
             if chat_core.VTube_Studio_API_connection_status: #握手成功
                 hotkeyID_list = VTube_Studio_API.websocket_send( #取得快速鍵列表
@@ -119,13 +121,13 @@ async def bot(
         try:
             VTube_Studio_API.hotkey_trigger(config.default.sentiment) #觸發默認情緒的快速鍵
             logger.info("已觸發默認情緒的快速鍵")
-        except:
+        except NameError:
             logger.info("未有需要觸發的快速鍵")
 
         try:
             VTube_Studio_API.close()
             logger.info("已釋放VTube_Studio_API資源")
-        except:
+        except NameError:
             logger.info("未有需要釋放的VTube_Studio_API資源")
 
 #重新生成
@@ -299,7 +301,42 @@ with gr.Blocks() as demo:
 
     with gr.Tab("控制面板"):
         with gr.Row():
-            with gr.Column(scale=4):
+            with gr.Column(scale=1, min_width=0):
+                audio_device_dropdown = gr.Dropdown(
+                    label="音訊裝置", 
+                    choices=["預設"] + audio_device_names_list, 
+                    value=audio_device_name,
+                    filterable=False
+                )
+
+            with gr.Column(scale=3, min_width=0):
+                checkable_settings_checkboxgroup = gr.CheckboxGroup(
+                    label="可選項",
+                    choices=["TTS", "情緒分析"], 
+                    value=config.default.checkable_settings
+                )
+
+        with gr.Row():
+            with gr.Column(scale=1, min_width=0):
+                audio_volume_slider = gr.Slider(
+                    label="音量", 
+                    value=config.default.audio.audio_volume, 
+                    minimum=0, 
+                    maximum=100, 
+                    step=1
+                )
+
+            with gr.Column(scale=1, min_width=0):
+                history_num_slider = gr.Slider(
+                    label=f"上下文數量  模式:{config.default.history.history_mode}", 
+                    value=config.default.history.history_num, 
+                    minimum=1 if config.default.history.history_mode == "rounds" else 50, 
+                    maximum=config.default.history.history_num_max, 
+                    step=1 if config.default.history.history_mode == "rounds" else 50
+                )
+
+        with gr.Row():
+            with gr.Column(scale=2):
                 chat_room_chatbot = gr.Chatbot(label="聊天室", bubble_full_width=False, show_copy_button=True)
 
                 with gr.Row():
@@ -319,34 +356,6 @@ with gr.Blocks() as demo:
                 log = gr.Textbox(label="日誌")
 
             with gr.Column(scale=1, min_width=0):
-                with gr.Row():
-                    audio_device_dropdown = gr.Dropdown(
-                        label="音訊裝置", 
-                        choices=["預設"] + audio_device_names_list, 
-                        value=audio_device_name,
-                        filterable=False
-                    )
-                    audio_volume_slider = gr.Slider(
-                        label="音量", 
-                        value=config.default.audio.audio_volume, 
-                        minimum=0, 
-                        maximum=100, 
-                        step=1
-                    )
-                    history_num_slider = gr.Slider(
-                        label=f"上下文數量  模式:{config.default.history.history_mode}", 
-                        value=config.default.history.history_num, 
-                        minimum=1 if config.default.history.history_mode == "rounds" else 50, 
-                        maximum=config.default.history.history_num_max, 
-                        step=1 if config.default.history.history_mode == "rounds" else 50
-                    )
-                    checkable_settings_checkboxgroup = gr.CheckboxGroup(
-                        label="可選項",
-                        choices=["TTS", "情緒分析"], 
-                        value=config.default.checkable_settings
-                    )
-
-            with gr.Column(scale=2, min_width=0):
                 youtube_channel_id = gr.Textbox(label="YouTube帳號代碼", value=config.default.YouTubeChannelID)
 
                 with gr.Row():
