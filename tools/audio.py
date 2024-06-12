@@ -17,6 +17,10 @@ def get_audio_device_names() -> list[str]:
     pygame_mixer.quit() #退出混音器
     return audio_device_names
 
+#重新取得音訊設備名稱
+def get_audio_device_name_again():
+    return sdl2_audio.get_audio_device_names(False) #取得音訊設備名稱
+
 #初始化音訊
 def initialize_audio(audio_device_names_list: list) -> str:
     default_audio_device = config.default.audio.audio_device_name

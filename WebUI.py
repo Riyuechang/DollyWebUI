@@ -12,7 +12,7 @@ from config import config
 from tools.log import logger
 from tools.tts import tts_generation
 from tools.word_processing import prompt_process, sentence_break, processing_timestamps
-from tools.audio import get_audio_device_names, initialize_audio, change_audio_device
+from tools.audio import get_audio_device_names, initialize_audio, change_audio_device, get_audio_device_name_again
 from VTube_Studio_API import Websocket_connect, HotkeysInCurrentModelRequest, hotkeyID_list_processing
 from core import chat_core
 
@@ -296,7 +296,23 @@ def update_and_reload_config(hypnotic_prompt: str):
     logger.info("更新並重新載入設定檔成功")
 
 
-with gr.Blocks() as demo:
+def reload_audio_device():
+    audio_device_names_list = get_audio_device_name_again()
+    return gr.update(choices=["預設"] + audio_device_names_list)
+
+
+css = """
+.reload_audio_device_button {
+    width: 2em;
+    height: 2em;
+    margin-left: -0.5em;
+}
+
+.checkable_settings_checkboxgroup {
+    margin-left: 2.5em;
+}
+"""
+with gr.Blocks(css=css) as demo:
     gr.Markdown("Dolly WebUI v1.0.0")
 
     with gr.Tab("控制面板"):
@@ -309,7 +325,15 @@ with gr.Blocks() as demo:
                     filterable=False
                 )
 
-            with gr.Column(scale=3, min_width=0):
+            with gr.Column(scale=0, min_width=0):
+                reload_audio_device_button = gr.Button(
+                    value="↻", 
+                    variant="secondary", 
+                    scale=2,
+                    elem_classes="reload_audio_device_button"
+                )
+
+            with gr.Column(scale=3, min_width=0, elem_classes="checkable_settings_checkboxgroup"):
                 checkable_settings_checkboxgroup = gr.CheckboxGroup(
                     label="可選項",
                     choices=["TTS", "情緒分析"], 
@@ -328,7 +352,8 @@ with gr.Blocks() as demo:
 
             with gr.Column(scale=1, min_width=0):
                 history_num_slider = gr.Slider(
-                    label=f"上下文數量  模式:{config.default.history.history_mode}", 
+                    label=f"上下文數量", 
+                    info=f"模式:{config.default.history.history_mode}",
                     value=config.default.history.history_num, 
                     minimum=1 if config.default.history.history_mode == "rounds" else 50, 
                     maximum=config.default.history.history_num_max, 
@@ -475,5 +500,6 @@ with gr.Blocks() as demo:
         ]
     )
     update_and_reload_config_button.click(update_and_reload_config, hypnotic_prompt_textarea)
+    reload_audio_device_button.click(reload_audio_device, outputs=audio_device_dropdown)
 
 demo.launch() #啟用WebUI
