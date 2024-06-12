@@ -55,6 +55,11 @@ def TTS_API(
     # 合併成完整url
     match config.TTS.TTS_type:
         case "BertVITS2":
+            word_to_replace = [["啊", "阿"], ["呃", "厄"]]
+
+            for replacement_list in word_to_replace:
+                text = text.replace(replacement_list[0], replacement_list[1])
+
             BertVITS2_config = TTS_config["BertVITS2"]
             audio_url = f"http://{BertVITS2_config['BertVITS2IP']}/voice?"
             audio_url += f"text={quote(text)}&"
