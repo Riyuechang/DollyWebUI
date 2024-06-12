@@ -121,7 +121,7 @@ def sentence_break(content: str) -> list[str]:
     #character_to_wrap = r"[.。?？!！\n]" #要換行的字元
 
     for char in content:
-        if char in "。?？!！\n": #是換行字元就暫存
+        if char in "。?？!！;；\n": #是換行字元就暫存
             text += char
             previous_text_type = "newline_character" #更新文字類型
 
